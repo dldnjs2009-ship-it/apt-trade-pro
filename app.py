@@ -20,7 +20,6 @@ DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vb
 ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
 
-# 동탄구(동탄 1·2신도시) 소속 법정동 전수 목록 (14개 동)
 DONGTAN_DONGS = [
     '반송동', '석우동', '능동', '청계동', '영천동',
     '오산동', '신동', '목동', '산척동', '장지동',
@@ -98,7 +97,6 @@ REGION_STRUCTURE = {
     }
 }
 
-# ── 3. 단일 월 고속 API 수집 태스크 ───────────────────────
 def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -106,7 +104,7 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
     }
     task_records = []
     page = 1
-    
+
     while True:
         params = {
             'serviceKey': DECODING_KEY,
@@ -115,7 +113,7 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
             'numOfRows': '200',
             'pageNo': str(page)
         }
-        
+
         res = None
         for attempt in range(2):
             try:
@@ -124,7 +122,7 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
                     break
             except Exception:
                 time.sleep(0.2)
-        
+
         if res is None or res.status_code != 200 or '<item>' not in res.text:
             fallback_url = f"{BASE_URL}?serviceKey={ENCODING_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=200&pageNo={page}"
             try:
@@ -134,28 +132,28 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
 
         if res is None or res.status_code != 200:
             break
-            
+
         try:
             root = ET.fromstring(res.content)
         except Exception:
             break
-            
+
         result_code = root.find('.//resultCode')
         if result_code is not None and result_code.text not in ['00', '000']:
             break
 
         total_tag = root.find('.//totalCount')
         total = int(total_tag.text) if total_tag is not None and total_tag.text else 0
-        
+
         items = root.findall('.//item')
         if not items:
             break
-            
+
         for item in items:
             r = {child.tag: (child.text.strip() if child.text else '') for child in item}
             if r.get('cdealType', '') == 'O' or r.get('cdealDay', '') != '':
                 continue
-            
+
             raw_dong = r.get('umdNm', '').strip()
             if not raw_dong:
                 raw_dong = r.get('aptDong', '').strip() or '기타'
@@ -163,7 +161,7 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
                 parts = raw_dong.split()
                 if len(parts) > 1 and parts[0].endswith(('읍', '면')):
                     raw_dong = parts[0]
-                
+
             task_records.append({
                 'sido': sido,
                 'city': city,
@@ -174,13 +172,12 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
                 'price': int(str(r.get('dealAmount', '0')).replace(',', '').strip() or 0),
                 'month': f"{r.get('dealYear', '')}-{str(r.get('dealMonth', '')).zfill(2)}"
             })
-        
+
         if len(items) < 200 or len(task_records) >= total:
             break
         page += 1
 
     return task_records
-
 
 @st.cache_data(ttl=86400)
 def fetch_target_records(target_list_tuples, target_months_tuple):
@@ -206,8 +203,7 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
 
     return pd.DataFrame(all_records)
 
-
-# ── 4. 사이드바 설정 및 예산 계산기 ────────────────────────
+# ── 3. 사이드바 설정 및 예산 계산기 ────────────────────────
 st.sidebar.header("⚙️ 데이터 및 예산 설정")
 
 if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기"):
@@ -270,8 +266,7 @@ st.sidebar.write(f"• **월 예상 원리금:** **{monthly_payment // 10000:,}�
 
 filter_by_budget = st.sidebar.checkbox("🎯 내 예산 이하 단지만 필터링", value=True)
 
-
-# ── 5. 메인 UI 및 계층형 지역 필터 ────────────────────────
+# ── 4. 메인 UI 및 계층형 지역 필터 ────────────────────────
 st.title("📊 전국 아파트 실거래가 및 내집마련 대시보드")
 st.caption("국토교통부 실거래가 오픈 API 실시간 연동 (시/구 전체 통합 집계 및 맞춤 추천)")
 
@@ -301,8 +296,7 @@ if selected_sido == "경기도":
     else:
         gu_dict = sido_data[selected_city]
         gu_keys = list(gu_dict.keys())
-        
-        # ── [구·권역 전체 옵션 자동 생성] ──
+
         if selected_city == "화성시":
             gu_options = gu_keys
         elif len(gu_keys) > 1:
@@ -345,7 +339,6 @@ if df.empty:
     st.warning("국토교통부 API 서버 응답이 지연되었습니다. 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러주세요.")
     st.stop()
 
-# ── [화성시 동탄구 / 비동탄권 필터링] ──
 if selected_city == "화성시":
     if selected_gu == "동탄구 (동탄 1·2신도시)":
         df = df[df['dong'].isin(DONGTAN_DONGS)].copy()
@@ -363,7 +356,7 @@ if filter_by_budget:
 else:
     affordable_df = view_df
 
-# ── 6. 상단 요약 통계 메트릭 ──────────────────────────────
+# ── 5. 요약 통계 및 시각화 ─────────────────────────────────
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("💵 최대 매수가", f"{max_affordable_price // 10000}억 {max_affordable_price % 10000:,}만")
 m2.metric("💳 필요 대출금", f"{max_loan_amount // 10000}억 {max_loan_amount % 10000:,}만")
@@ -373,7 +366,6 @@ m4.metric("🏦 월 예상 원리금", f"{monthly_payment // 10000:,}만원")
 
 st.divider()
 
-# ── 7. 매수 가능 단지 순위 및 월별 거래량 ────────────────
 c1, c2 = st.columns([3, 2])
 
 display_title = f"{selected_sido} {scope_name}"
@@ -397,7 +389,6 @@ with c2:
 
 st.divider()
 
-# ── 8. 내 예산 맞춤 추천 단지 TOP 15 ──────────────────────
 st.subheader(f"🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15")
 
 if affordable_df.empty:
@@ -411,11 +402,11 @@ else:
     ).reset_index()
 
     apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(15)
-    
+
     apt_rank['평균실거래가'] = apt_rank['평균실거래가'].astype(int).apply(lambda x: f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만")
     apt_rank['최근최고가'] = apt_rank['최근최고가'].astype(int).apply(lambda x: f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만")
     apt_rank['전용면적_평형'] = apt_rank['전용면적_평균'].apply(lambda x: f"{x:.1f}㎡ ({x/3.30578:.0f}평)")
-    
+
     display_table = apt_rank[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '평균실거래가', '최근최고가']]
     display_table.columns = ['시·군', '구', '법정동(읍·면)', '단지명', '평균 면적', '거래건수', '평균 실거래가', '최근 최고가']
     display_table.index = range(1, len(display_table) + 1)
