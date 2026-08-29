@@ -42,7 +42,7 @@ CUSTOM_CSS = """
     --warning: #dd6b20;
     --rise: #e53e3e;
     --fall: #2a78d6;
-    --gap-purple: #7048e8;
+    --jeonse-blue: #1971c2;
 }
 
 html, body, [class*="css"] {
@@ -121,13 +121,13 @@ html, body, [class*="css"] {
 .rank-price { font-size: 1.38rem; font-weight: 800; color: var(--brand-accent); margin-top: 10px; font-variant-numeric: tabular-nums; }
 .rank-meta { font-size: .76rem; color: var(--ink-secondary); margin-top: 5px; }
 
-.rank-gap-box {
-    background: #f8f6ff; border-radius: 8px; padding: 6px 10px; margin-top: 8px;
-    border: 1px solid rgba(112, 72, 232, 0.18);
-    font-size: .77rem; color: var(--gap-purple); font-weight: 700;
+.rank-jeonse-box {
+    background: #f0f7ff; border-radius: 8px; padding: 8px 10px; margin-top: 10px;
+    border: 1px solid rgba(25, 113, 194, 0.18);
+    font-size: .77rem; color: var(--jeonse-blue); font-weight: 700; line-height: 1.4;
 }
 
-/* 6개월 시세 변동률 배지 */
+/* 시세 변동률 배지 */
 .badge-rate {
     display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: .72rem; font-weight: 800; margin-top: 6px;
 }
@@ -276,6 +276,8 @@ def calculate_dsr_max_loan(annual_income: int, loan_interest: float, term_years:
 
 def get_trend_badge(trend_rate: float) -> str:
     """6개월 전 대비 시세 변동률(모멘텀) 상태 배지 생성"""
+    if pd.isna(trend_rate):
+        return '<span class="badge-rate flat">➖ 변동 없음</span>'
     if trend_rate >= 5.0:
         return f'<span class="badge-rate surge">🔥 급상승 (+{trend_rate:.1f}%)</span>'
     elif trend_rate >= 1.0:
@@ -286,6 +288,22 @@ def get_trend_badge(trend_rate: float) -> str:
         return f'<span class="badge-rate fall">📉 조정 ({trend_rate:.1f}%)</span>'
     else:
         return f'<span class="badge-rate drop">🧊 급락 ({trend_rate:.1f}%)</span>'
+
+
+def format_trend_text(val):
+    """표 데이터용 변동률 텍스트 포맷팅"""
+    if pd.isna(val) or val is None:
+        return "-"
+    if val >= 5.0:
+        return f"🔥 급상승 (+{val:.1f}%)"
+    elif val >= 1.0:
+        return f"📈 상승 (+{val:.1f}%)"
+    elif val > -1.0:
+        return f"➖ 보합 ({val:+.1f}%)"
+    elif val > -5.0:
+        return f"📉 조정 ({val:.1f}%)"
+    else:
+        return f"🧊 급락 ({val:.1f}%)"
 
 
 def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFrame:
@@ -803,7 +821,7 @@ else:
 st.markdown("""
 <div class="hero-banner">
   <h1>🏠 전국 아파트 실거래가 및 내집마련 대시보드</h1>
-  <p>국토교통부 매매·전세 실거래가 오픈 API 실시간 연동 · 전세가율 및 실투자 갭 분석</p>
+  <p>국토교통부 매매·전세 실거래가 오픈 API 실시간 연동 · 시세 모멘텀 및 전세가율 분석</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1058,7 +1076,7 @@ with c2:
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-# ── 9. 추천 단지 TOP 15 (전세가율 & 실투자 갭 통합 집계) ────────
+# ── 9. 추천 단지 TOP 15 (매매/전세 6개월 변동 추세 및 전세가율) ──────
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -1076,7 +1094,7 @@ else:
     half_split_idx = max(1, len(all_period_months) // 2)
     first_half_months = all_period_months[:half_split_idx]
 
-    # 전세 데이터 사전 집계 (단지+평형별 최근 전세가)
+    # 전세 데이터 사전 집계 (단지+평형별 최근 전세가 및 6개월 전세 변동률)
     rent_dict = {}
     if not view_rent_df.empty:
         clean_rent_df = view_rent_df[view_rent_df['floor'] > 3]
@@ -1084,16 +1102,38 @@ else:
             clean_rent_df = view_rent_df
 
         for (c, g, d, a, p), r_group in clean_rent_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']):
+            # 1) 최근 전세가
             r_recent = r_group[r_group['month'].isin(late_fixed_months)]
             if not r_recent.empty:
-                r_price = r_recent['deposit'].mean()
+                r_price_recent = r_recent['deposit'].mean()
             else:
                 r_latest_month = r_group['month'].max()
-                r_price = r_group[r_group['month'] == r_latest_month]['deposit'].mean()
-            rent_dict[(c, g, d, a, p)] = int(r_price)
+                r_price_recent = r_group[r_group['month'] == r_latest_month]['deposit'].mean()
+
+            # 2) 5~6개월 전 초기 전세가
+            r_base = r_group[r_group['month'].isin(early_fixed_months)]
+            if not r_base.empty:
+                r_price_base = r_base['deposit'].mean()
+            else:
+                r_half = r_group[r_group['month'].isin(first_half_months)]
+                if not r_half.empty:
+                    r_price_base = r_half['deposit'].mean()
+                else:
+                    r_earliest_month = r_group['month'].min()
+                    r_price_base = r_group[r_group['month'] == r_earliest_month]['deposit'].mean()
+
+            # 3) 전세 6개월 변동률
+            if r_price_base > 0:
+                rent_trend = ((r_price_recent - r_price_base) / r_price_base) * 100
+            else:
+                rent_trend = 0.0
+
+            rent_dict[(c, g, d, a, p)] = {
+                'recent_rent': int(r_price_recent),
+                'rent_trend': rent_trend
+            }
 
     def aggregate_apt_metrics(group):
-        # [수정] Pandas 2.2+ 호환성: group.name 튜플에서 키 안전 추출
         if hasattr(group, 'name') and isinstance(group.name, tuple):
             c_val, g_val, d_val, a_val, p_val = group.name
         else:
@@ -1112,7 +1152,7 @@ else:
         if clean_group.empty:
             clean_group = group
 
-        # 2. 최근 실거래가 산출
+        # 2. 최근 매매 실거래가 산출
         recent_deals = clean_group[clean_group['month'].isin(late_fixed_months)]
         if not recent_deals.empty:
             recent_mean = recent_deals['price'].mean()
@@ -1120,7 +1160,7 @@ else:
             latest_month_of_apt = clean_group['month'].max()
             recent_mean = clean_group[clean_group['month'] == latest_month_of_apt]['price'].mean()
 
-        # 3. 5~6개월 전 초기 기준 시세 산출
+        # 3. 5~6개월 전 초기 기준 매매 시세 산출
         base_deals = clean_group[clean_group['month'].isin(early_fixed_months)]
         if not base_deals.empty:
             base_mean = base_deals['price'].mean()
@@ -1132,20 +1172,22 @@ else:
                 earliest_month_of_apt = clean_group['month'].min()
                 base_mean = clean_group[clean_group['month'] == earliest_month_of_apt]['price'].mean()
 
-        # 4. 6개월 전 대비 시세 변동률(모멘텀)
+        # 4. 6개월 전 대비 매매 변동률(모멘텀)
         if base_mean > 0:
             trend_rate = ((recent_mean - base_mean) / base_mean) * 100
         else:
             trend_rate = 0.0
 
-        # 5. 전세가 및 갭 매칭
-        rent_val = rent_dict.get((c_val, g_val, d_val, a_val, p_val), None)
-        if rent_val and rent_val > 0:
+        # 5. 전세가, 전세가율, 전세 6개월 변동률 매칭
+        rent_info = rent_dict.get((c_val, g_val, d_val, a_val, p_val), None)
+        if rent_info:
+            rent_val = rent_info['recent_rent']
             jeonse_rate = (rent_val / recent_mean) * 100
-            gap_price = recent_mean - rent_val
+            rent_trend = rent_info['rent_trend']
         else:
+            rent_val = None
             jeonse_rate = None
-            gap_price = None
+            rent_trend = None
 
         return pd.Series({
             '거래건수': total_count,
@@ -1155,11 +1197,10 @@ else:
             '조회기간최고가': max_price_val,
             '최근전세가': rent_val,
             '전세가율': jeonse_rate,
-            '실투자갭': gap_price,
+            '전세변동률': rent_trend,
             '전용면적_평균': mean_area
         })
 
-    # Pandas 버전별 groupby apply 호출
     try:
         apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']).apply(
             aggregate_apt_metrics, include_groups=False
@@ -1176,8 +1217,8 @@ else:
     apt_rank['최근실거래가_fmt'] = apt_rank['최근실거래가'].astype(int).apply(format_price)
     apt_rank['조회기간최고가_fmt'] = apt_rank['조회기간최고가'].astype(int).apply(format_price)
     apt_rank['최근전세가_fmt'] = apt_rank['최근전세가'].apply(lambda x: format_price(x) if pd.notna(x) else "-")
-    apt_rank['실투자갭_fmt'] = apt_rank['실투자갭'].apply(lambda x: format_price(x) if pd.notna(x) else "-")
     apt_rank['전세가율_fmt'] = apt_rank['전세가율'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "-")
+    apt_rank['전세변동_fmt'] = apt_rank['전세변동률'].apply(format_trend_text)
     apt_rank['전용면적_평형'] = apt_rank['전용면적_평균'].apply(
         lambda x: f"{x:.1f}㎡ ({int(round((x/3.30578)/0.745))}평형)"
     )
@@ -1191,55 +1232,45 @@ else:
             loc_txt = html.escape(f"{row['city']} {row['gu']} {row['dong']} · {row['전용면적_평형']}")
             trend_badge_html = row['상태배지']
             
-            # 전세 및 갭 텍스트 생성
+            # 전세 및 전세 6개월 변동 안내 (실투자 갭 제외)
             if row['전세가율_fmt'] != "-":
-                gap_html = f"""
-                <div class="rank-gap-box">
-                    전세 {row['최근전세가_fmt']} (전세가율 {row['전세가율_fmt']} · 갭 {row['실투자갭_fmt']})
-                </div>
-                """
+                jeonse_trend_str = f"전세 6개월 {row['전세변동_fmt']}" if row['전세변동_fmt'] != "-" else ""
+                jeonse_html = f'<div class="rank-jeonse-box">전세 {row["최근전세가_fmt"]} (전세가율 {row["전세가율_fmt"]})<br><span style="font-size:0.71rem; color:var(--ink-secondary);">{jeonse_trend_str}</span></div>'
             else:
-                gap_html = """<div class="rank-gap-box" style="color:var(--ink-muted); border-color:var(--border-hairline);">최근 전세 거래 없음</div>"""
+                jeonse_html = '<div class="rank-jeonse-box" style="color:var(--ink-muted); border-color:var(--border-hairline);">최근 전세 거래 없음</div>'
+
+            # 단일 문자열 결합으로 HTML 파싱 오류 원천 차단
+            card_html = (
+                f'<div class="rank-card">'
+                f'<div>'
+                f'<div class="rank-badge">{medals[i]}</div>'
+                f'<div class="rank-apt">{apt_name}</div>'
+                f'<div class="rank-loc">{loc_txt}</div>'
+                f'<div>{trend_badge_html}</div>'
+                f'<div class="rank-price">{row["최근실거래가_fmt"]}원</div>'
+                f'<div class="rank-meta">총 {int(row["거래건수"])}건 거래 · 최고가 {row["조회기간최고가_fmt"]}원</div>'
+                f'</div>'
+                f'{jeonse_html}'
+                f'</div>'
+            )
 
             with top_cols[i]:
-                st.markdown(f"""<div class="rank-card">
-                    <div>
-                        <div class="rank-badge">{medals[i]}</div>
-                        <div class="rank-apt">{apt_name}</div>
-                        <div class="rank-loc">{loc_txt}</div>
-                        <div>{trend_badge_html}</div>
-                        <div class="rank-price">{row['최근실거래가_fmt']}원</div>
-                        <div class="rank-meta">총 {int(row['거래건수'])}건 거래 · 최고가 {row['조회기간최고가_fmt']}원</div>
-                    </div>
-                    {gap_html}
-                </div>""", unsafe_allow_html=True)
+                st.markdown(card_html, unsafe_allow_html=True)
         st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
     # 4위 이하 단지 표
     rest = apt_rank.iloc[3:].copy()
     if not rest.empty:
-        def format_trend_text(val):
-            if val >= 5.0:
-                return f"🔥 급상승 (+{val:.1f}%)"
-            elif val >= 1.0:
-                return f"📈 상승 (+{val:.1f}%)"
-            elif val > -1.0:
-                return f"➖ 보합 ({val:+.1f}%)"
-            elif val > -5.0:
-                return f"📉 조정 ({val:.1f}%)"
-            else:
-                return f"🧊 급락 ({val:.1f}%)"
-
-        rest['6개월시세변동'] = rest['변동률'].apply(format_trend_text)
+        rest['6개월매매변동'] = rest['변동률'].apply(format_trend_text)
         rest['거래건수'] = rest['거래건수'].astype(int)
 
         rest_display = rest[[
             'city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', 
-            '최근실거래가_fmt', '최근전세가_fmt', '전세가율_fmt', '실투자갭_fmt', '6개월시세변동'
+            '최근실거래가_fmt', '6개월매매변동', '최근전세가_fmt', '전세가율_fmt', '전세변동_fmt'
         ]].copy()
         rest_display.columns = [
             '시·군', '구', '법정동', '단지명', '면적(공급평형)', '거래건수', 
-            '최근 매매가', '최근 전세가', '전세가율', '실투자 갭', '6개월 변동'
+            '최근 매매가', '매매 6개월 변동', '최근 전세가', '전세가율', '전세 6개월 변동'
         ]
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
