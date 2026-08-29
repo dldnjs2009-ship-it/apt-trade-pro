@@ -86,7 +86,15 @@ html, body, [class*="css"] {
 .kpi-value { font-size: 1.4rem; font-weight: 800; color: var(--ink-primary); margin-top: 6px; font-variant-numeric: tabular-nums; }
 .kpi-value.accent { color: var(--brand-accent); }
 .kpi-value.primary { color: var(--brand-primary-dark); }
-.kpi-sub { font-size: .74rem; color: var(--good); margin-top: 4px; font-weight: 700; }
+.kpi-sub { 
+    font-size: .74rem; 
+    color: var(--good); 
+    margin-top: 4px; 
+    font-weight: 700; 
+    white-space: nowrap; 
+    overflow: hidden; 
+    text-overflow: ellipsis; 
+}
 .kpi-sub.muted { color: var(--ink-muted); font-weight: 500; }
 
 /* 섹션 타이틀 */
@@ -817,7 +825,7 @@ else:
     affordable_df = view_df
     dong_rank_source = df
 
-# ── 7. 요약 통계 KPI 카드 (거래량은 전체 실제 거래 100% 반영) ───
+# ── 7. 요약 통계 KPI 카드 (최고가 아파트 단지명 및 평형 표시) ────
 match_pct = (len(affordable_df) / len(view_df) * 100) if len(view_df) > 0 else 0
 
 # 가격 계산 시에만 저층·직거래를 제외하여 정확한 로열층 시세 도출
@@ -826,8 +834,17 @@ if clean_price_deals.empty:
     clean_price_deals = view_df
 
 avg_clean_price = int(clean_price_deals['price'].mean()) if len(clean_price_deals) > 0 else 0
-max_price = int(view_df['price'].max()) if len(view_df) > 0 else 0
 apt_count = view_df['apt'].nunique() if len(view_df) > 0 else 0
+
+# 최고가 기록 아파트 정보 추출
+if len(view_df) > 0:
+    max_idx = view_df['price'].idxmax()
+    max_row = view_df.loc[max_idx]
+    max_price = int(max_row['price'])
+    max_apt_desc = f"{max_row['apt']} ({max_row['dong']} · {int(max_row['supply_pyeong'])}평형)"
+else:
+    max_price = 0
+    max_apt_desc = "조회 기간 내 최고가"
 
 if calc_enabled:
     kpi_html = f"""
@@ -870,7 +887,7 @@ else:
         <div class="kpi-card">
             <div class="kpi-label">🏆 최고 실거래가</div>
             <div class="kpi-value">{format_price(max_price)}</div>
-            <div class="kpi-sub muted">조회 기간 내 최고가</div>
+            <div class="kpi-sub muted" title="{html.escape(max_apt_desc)}">{html.escape(max_apt_desc)}</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">🏘️ 거래 단지 수</div>
@@ -961,7 +978,6 @@ else:
         latest_month_of_apt = clean_group['month'].max()
         latest_deals = clean_group[clean_group['month'] == latest_month_of_apt]
         
-        # 최근 월 거래가 3건 미만이면 최근 2개 월 거래까지 합산하여 안정적인 최근 시세 반영
         if len(latest_deals) < 3:
             apt_months = sorted(list(clean_group['month'].unique()))
             recent_apt_months = apt_months[-2:] if len(apt_months) >= 2 else apt_months
