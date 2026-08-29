@@ -22,7 +22,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── 1-1. 디자인 시스템 (PC 및 모바일 반응형 CSS) ───────────
+# ── 1-1. 디자인 시스템 (PC / 모바일 반응형 2x2 CSS Grid) ─────
 CUSTOM_CSS = """
 <style>
 @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
@@ -50,32 +50,38 @@ html, body, [class*="css"] {
 /* 상단 히어로 배너 */
 .hero-banner {
     background: linear-gradient(135deg, #184f95 0%, #2a78d6 55%, #3987e5 100%);
-    border-radius: 18px; padding: 22px 26px; margin-bottom: 16px; color: #ffffff;
-    box-shadow: 0 10px 24px rgba(24,79,149,0.22);
+    border-radius: 16px; padding: 20px 24px; margin-bottom: 14px; color: #ffffff;
+    box-shadow: 0 8px 20px rgba(24,79,149,0.20);
 }
-.hero-banner h1 { margin: 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
-.hero-banner p { margin: 6px 0 0; opacity: .88; font-size: .88rem; }
+.hero-banner h1 { margin: 0; font-size: 1.45rem; font-weight: 800; letter-spacing: -0.02em; }
+.hero-banner p { margin: 5px 0 0; opacity: .88; font-size: .85rem; }
 
 /* 필터 스텝 칩 */
 .step-chip {
-    display: inline-flex; align-items: center; gap: 5px;
+    display: inline-flex; align-items: center; gap: 4px;
     background: rgba(42,120,214,0.10); color: var(--brand-primary-dark);
     font-weight: 700; font-size: .75rem; padding: 2px 8px; border-radius: 999px;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
 }
 
-/* KPI 카드 */
+/* KPI 카드 4열(PC) / 2열(모바일) CSS Grid */
+.kpi-grid-container {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin: 10px 0 16px;
+}
 .kpi-card {
     background: var(--surface); border-radius: 14px; padding: 14px 16px;
     border: 1px solid var(--border-hairline);
     box-shadow: 0 1px 2px rgba(11,11,11,0.03), 0 6px 18px rgba(11,11,11,0.04);
-    height: 100%;
+    height: 100%; box-sizing: border-box;
 }
 .kpi-label {
     font-size: .78rem; color: var(--ink-secondary); font-weight: 700;
     display: flex; align-items: center; gap: 5px;
 }
-.kpi-value { font-size: 1.45rem; font-weight: 800; color: var(--ink-primary); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.kpi-value { font-size: 1.4rem; font-weight: 800; color: var(--ink-primary); margin-top: 6px; font-variant-numeric: tabular-nums; }
 .kpi-value.accent { color: var(--brand-accent); }
 .kpi-value.primary { color: var(--brand-primary-dark); }
 .kpi-sub { font-size: .74rem; color: var(--good); margin-top: 4px; font-weight: 700; }
@@ -118,7 +124,7 @@ section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px
 .budget-row b { color: var(--ink-primary); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
 .sidebar-note { font-size: .76rem; color: var(--ink-muted); line-height: 1.4; padding: 6px 2px; }
 
-/* 📱 모바일 전용 반응형 압축 스타일 (스크롤 대폭 축소) */
+/* 📱 모바일 전용 반응형 레이아웃 (스크롤 대폭 축소) */
 @media (max-width: 768px) {
     .block-container {
         padding-top: 0.8rem !important;
@@ -134,22 +140,30 @@ section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px
     .hero-banner h1 { font-size: 1.15rem !important; }
     .hero-banner p { font-size: 0.76rem !important; margin-top: 3px !important; }
 
-    /* 4단 필터 & 4개 KPI 카드를 모바일에서 2x2 그리드로 강제 압축 */
-    div[data-testid="stHorizontalBlock"]:has(.step-chip),
-    div[data-testid="stHorizontalBlock"]:has(.kpi-card) {
+    /* 4단 필터를 모바일에서 강제로 2x2 (2열 2행)로 압축 */
+    div[data-testid="stHorizontalBlock"]:has([data-testid="stSelectbox"]) {
         display: flex !important;
         flex-direction: row !important;
         flex-wrap: wrap !important;
         gap: 6px !important;
     }
-    div[data-testid="stHorizontalBlock"]:has(.step-chip) > div[data-testid="column"],
-    div[data-testid="stHorizontalBlock"]:has(.kpi-card) > div[data-testid="column"] {
+    div[data-testid="stHorizontalBlock"]:has([data-testid="stSelectbox"]) > div[data-testid="column"] {
         width: calc(50% - 3px) !important;
         min-width: calc(50% - 3px) !important;
+        max-width: calc(50% - 3px) !important;
         flex: 1 1 calc(50% - 3px) !important;
         margin-bottom: 2px !important;
     }
+    div[data-testid="stSelectbox"] {
+        margin-bottom: -10px !important;
+    }
 
+    /* KPI 카드를 모바일에서 2x2 그리드로 압축 */
+    .kpi-grid-container {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 6px !important;
+        margin: 8px 0 12px !important;
+    }
     .kpi-card {
         padding: 10px 12px !important;
         border-radius: 10px !important;
@@ -157,7 +171,7 @@ section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px
     .kpi-label { font-size: 0.72rem !important; }
     .kpi-value { font-size: 1.15rem !important; margin-top: 3px !important; }
     .kpi-sub { font-size: 0.68rem !important; margin-top: 2px !important; }
-    .step-chip { font-size: 0.68rem !important; padding: 2px 6px !important; margin-bottom: 2px !important; }
+    .step-chip { font-size: 0.68rem !important; padding: 1px 6px !important; margin-bottom: 1px !important; }
 
     /* 추천 단지 TOP3 모바일 카드 여백 최적화 */
     .rank-card {
@@ -196,7 +210,6 @@ DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vb
 ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
 
-# 방문자 집계용 서버 공용 캐시 저장소
 @st.cache_resource
 def get_visitor_storage():
     return {
@@ -207,11 +220,9 @@ def get_visitor_storage():
 
 visitor_storage = get_visitor_storage()
 
-# 한국 시간(KST) 기준 날짜 및 접속 시간 생성
 now_kst = datetime.now(KST)
 today_key = now_kst.strftime("%Y-%m-%d")
 
-# 세션별 1회 카운트 증가
 if "session_visited" not in st.session_state:
     st.session_state["session_visited"] = True
     visitor_storage["total"] += 1
@@ -413,10 +424,9 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
 
     return pd.DataFrame(all_records)
 
-# ── 5. 사이드바 설정 ─────────────────────────────────────
+# ── 5. 사이드바 설정 (관리자 모드 최상단 배치) ──────────────
 st.sidebar.markdown("### ⚙️ 대시보드 설정")
 
-# [1] 관리자 모드
 with st.sidebar.expander("🔒 관리자 모드 (방문자 확인)", expanded=False):
     admin_password = st.text_input("비밀번호 입력", type="password", key="admin_auth_pwd")
     ADMIN_SECRET_KEY = "7576"
@@ -442,7 +452,6 @@ if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기", 
     st.cache_data.clear()
     st.rerun()
 
-# [2] 조회 기간 선택
 period_option = st.sidebar.selectbox(
     "📅 조회 기간 선택",
     ["최근 6개월 (실시간)", "최근 12개월 (1년)", "2024년 전체"],
@@ -456,7 +465,6 @@ elif period_option == "최근 12개월 (1년)":
 else:
     target_months = [f"2024{m:02d}" for m in range(1, 13)]
 
-# [3] 통매입 필터
 filter_bulk_option = st.sidebar.checkbox(
     "🚫 통매입/임대 대량 일괄거래 제외",
     value=True,
@@ -465,7 +473,6 @@ filter_bulk_option = st.sidebar.checkbox(
 
 st.sidebar.markdown("---")
 
-# [4] 네이버 부동산식 면적 필터
 st.sidebar.markdown("### 📐 전용면적 필터")
 area_unit = st.sidebar.radio("면적 단위", ["평", "㎡"], index=0, horizontal=True)
 
@@ -512,7 +519,6 @@ else:
 
 st.sidebar.markdown("---")
 
-# [5] 내 자본금 맞춤 계산기
 calc_enabled = st.sidebar.toggle("🪙 내 자본금 맞춤 계산기 활성화", value=False)
 
 if calc_enabled:
@@ -568,7 +574,7 @@ else:
         unsafe_allow_html=True
     )
 
-# ── 6. 메인 UI 및 계층형 지역 필터 (모바일 2x2 반응형) ────────
+# ── 6. 메인 UI 및 계층형 지역 필터 (모바일 2x2 반응형 배치) ───
 st.markdown("""
 <div class="hero-banner">
   <h1>🏠 전국 아파트 실거래가 및 내집마련 대시보드</h1>
@@ -690,67 +696,66 @@ else:
     affordable_df = view_df
     dong_rank_source = df
 
-# ── 7. 요약 통계 및 시각화 (모바일 2x2 반응형) ───────────────
+# ── 7. 요약 통계 (CSS Grid 기반 4열 PC / 2x2 모바일 압축) ────
 match_pct = (len(affordable_df) / len(view_df) * 100) if len(view_df) > 0 else 0
 
-k1, k2, k3, k4 = st.columns(4)
-
 if calc_enabled:
-    with k1:
-        st.markdown(f"""<div class="kpi-card">
+    kpi_html = f"""
+    <div class="kpi-grid-container">
+        <div class="kpi-card">
             <div class="kpi-label">💵 최대 매수가</div>
             <div class="kpi-value accent">{format_price(max_affordable_price)}</div>
             <div class="kpi-sub muted">자본금 {my_capital:,}만 · LTV {ltv_rate}%</div>
-        </div>""", unsafe_allow_html=True)
-    with k2:
-        st.markdown(f"""<div class="kpi-card">
+        </div>
+        <div class="kpi-card">
             <div class="kpi-label">💳 필요 대출금</div>
             <div class="kpi-value">{format_price(max_loan_amount)}</div>
             <div class="kpi-sub muted">금리 {loan_interest:.1f}% · {loan_term_years}년 만기</div>
-        </div>""", unsafe_allow_html=True)
-    with k3:
-        st.markdown(f"""<div class="kpi-card">
+        </div>
+        <div class="kpi-card">
             <div class="kpi-label">🎯 매수 가능 거래</div>
             <div class="kpi-value">{len(affordable_df):,}건</div>
-            <div class="kpi-sub">↑ 전체 {len(view_df):,}건 중 {match_pct:.1f}%</div>
-        </div>""", unsafe_allow_html=True)
-    with k4:
-        st.markdown(f"""<div class="kpi-card">
+            <div class="kpi-sub">전체 {len(view_df):,}건 중 {match_pct:.1f}%</div>
+        </div>
+        <div class="kpi-card">
             <div class="kpi-label">🏦 월 예상 원리금</div>
             <div class="kpi-value primary">{monthly_payment // 10000:,}만원</div>
             <div class="kpi-sub muted">원리금 균등분할 기준</div>
-        </div>""", unsafe_allow_html=True)
+        </div>
+    </div>
+    """
 else:
     avg_price = int(view_df['price'].mean()) if len(view_df) > 0 else 0
     max_price = int(view_df['price'].max()) if len(view_df) > 0 else 0
     apt_count = view_df['apt'].nunique() if len(view_df) > 0 else 0
-    with k1:
-        st.markdown(f"""<div class="kpi-card">
+    kpi_html = f"""
+    <div class="kpi-grid-container">
+        <div class="kpi-card">
             <div class="kpi-label">📊 전체 거래건수</div>
             <div class="kpi-value">{len(view_df):,}건</div>
             <div class="kpi-sub muted">선택 지역·기간 기준</div>
-        </div>""", unsafe_allow_html=True)
-    with k2:
-        st.markdown(f"""<div class="kpi-card">
+        </div>
+        <div class="kpi-card">
             <div class="kpi-label">💰 평균 실거래가</div>
             <div class="kpi-value accent">{format_price(avg_price)}</div>
             <div class="kpi-sub muted">전체 거래 평균</div>
-        </div>""", unsafe_allow_html=True)
-    with k3:
-        st.markdown(f"""<div class="kpi-card">
+        </div>
+        <div class="kpi-card">
             <div class="kpi-label">🏆 최고 실거래가</div>
             <div class="kpi-value">{format_price(max_price)}</div>
             <div class="kpi-sub muted">최근 6개월~ 기준</div>
-        </div>""", unsafe_allow_html=True)
-    with k4:
-        st.markdown(f"""<div class="kpi-card">
+        </div>
+        <div class="kpi-card">
             <div class="kpi-label">🏘️ 거래 단지 수</div>
             <div class="kpi-value primary">{apt_count:,}개</div>
-            <div class="kpi-sub muted">사이드바에서 계산기를 켜보세요</div>
-        </div>""", unsafe_allow_html=True)
+            <div class="kpi-sub muted">사이드바 계산기 지원</div>
+        </div>
+    </div>
+    """
 
-st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+st.markdown(kpi_html, unsafe_allow_html=True)
 
+# ── 8. 차트 및 동별 순위표 ────────────────────────────────
 c1, c2 = st.columns([3, 2])
 
 display_title = f"{selected_sido} {scope_name}"
@@ -772,7 +777,7 @@ with c1:
         plot_bgcolor="#fcfcfb",
         paper_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=10, r=10, t=10, b=10),
-        height=300,
+        height=290,
         font=dict(family="Pretendard, sans-serif", color="#52514e", size=12),
         xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
         yaxis=dict(gridcolor="#e1e0d9", zeroline=False),
@@ -793,7 +798,7 @@ with c2:
     st.dataframe(
         rank_df,
         use_container_width=True,
-        height=280,
+        height=270,
         column_config={
             "거래건수": st.column_config.ProgressColumn(
                 "거래건수", format="%d건", min_value=0, max_value=max_count
@@ -801,8 +806,9 @@ with c2:
         }
     )
 
-st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
+# ── 9. 추천 단지 TOP 15 ──────────────────────────────────
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
