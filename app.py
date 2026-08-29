@@ -20,21 +20,19 @@ DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vb
 ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
 
-DONGTAN_DONGS = [
-    '반송동', '석우동', '능동', '청계동', '영천동',
-    '오산동', '신동', '목동', '산척동', '장지동',
-    '송동', '중동', '방교동', '금곡동'
-]
-
 REGION_STRUCTURE = {
     "경기도": {
         "성남시": {"분당구": "41135", "수정구": "41131", "중원구": "41133"},
         "수원시": {"영통구": "41117", "장안구": "41111", "권선구": "41113", "팔달구": "41115"},
         "용인시": {"수지구": "41465", "기흥구": "41463", "처인구": "41461"},
+        # 2026-02-01부로 화성시가 만세구·효행구·병점구·동탄구 4개 일반구 체제로 개편되면서
+        # 기존 화성시 통합 코드(41590)로는 실거래가 API가 더 이상 데이터를 반환하지 않음.
+        # 신설된 구별 코드로 교체 (수원시/성남시 등과 동일한 다구 시 구조로 처리).
         "화성시": {
-            "화성시 전체": "41590",
-            "동탄구 (동탄 1·2신도시)": "41590",
-            "비동탄권 (봉담·향남·남양·병점 등)": "41590"
+            "만세구": "41591",
+            "효행구": "41593",
+            "병점구": "41595",
+            "동탄구": "41597"
         },
         "고양시": {"일산동구": "41285", "일산서구": "41287", "덕양구": "41281"},
         "안양시": {"동안구": "41173", "만안구": "41171"},
@@ -290,16 +288,12 @@ if selected_sido == "경기도":
             selected_gu = st.selectbox("3️⃣ 구·권역", ["경기도 전체"])
         for c_name, gu_dict in sido_data.items():
             for g_name, code in gu_dict.items():
-                if c_name == "화성시" and g_name != "화성시 전체":
-                    continue
                 target_codes_to_fetch.append((code, selected_sido, c_name, g_name))
     else:
         gu_dict = sido_data[selected_city]
         gu_keys = list(gu_dict.keys())
 
-        if selected_city == "화성시":
-            gu_options = gu_keys
-        elif len(gu_keys) > 1:
+        if len(gu_keys) > 1:
             gu_options = [f"{selected_city} 전체"] + gu_keys
         else:
             gu_options = gu_keys
@@ -307,9 +301,7 @@ if selected_sido == "경기도":
         with col3:
             selected_gu = st.selectbox("3️⃣ 구·권역", gu_options)
 
-        if selected_city == "화성시":
-            target_codes_to_fetch.append(("41590", selected_sido, "화성시", selected_gu))
-        elif selected_gu == f"{selected_city} 전체":
+        if selected_gu == f"{selected_city} 전체":
             for g_name, code in gu_dict.items():
                 target_codes_to_fetch.append((code, selected_sido, selected_city, g_name))
         else:
@@ -338,12 +330,6 @@ if df.empty:
     st.cache_data.clear()
     st.warning("국토교통부 API 서버 응답이 지연되었습니다. 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러주세요.")
     st.stop()
-
-if selected_city == "화성시":
-    if selected_gu == "동탄구 (동탄 1·2신도시)":
-        df = df[df['dong'].isin(DONGTAN_DONGS)].copy()
-    elif selected_gu == "비동탄권 (봉담·향남·남양·병점 등)":
-        df = df[~df['dong'].isin(DONGTAN_DONGS)].copy()
 
 with col4:
     dong_list = ['전체 보기'] + sorted(list(df['dong'].unique())) if not df.empty else ['전체 보기']
