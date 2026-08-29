@@ -5,6 +5,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import xml.etree.ElementTree as ET
 import urllib.parse
+import re
 import html
 import time
 import plotly.graph_objects as go
@@ -41,6 +42,7 @@ CUSTOM_CSS = """
     --danger: #e53e3e;
     --warning: #dd6b20;
     --naver-green: #03c75a;
+    --hogang-blue: #3b5bdb;
 }
 
 html, body, [class*="css"] {
@@ -119,18 +121,25 @@ html, body, [class*="css"] {
 .badge-rate.adjust { background: rgba(221, 107, 32, 0.12); color: var(--warning); }
 .badge-rate.high { background: rgba(42, 120, 214, 0.12); color: var(--brand-primary); }
 
-/* 네이버 부동산 바로가기 버튼 */
+/* 링크 버튼 그룹 */
+.btn-group {
+    display: flex; gap: 6px; margin-top: 12px;
+}
 .naver-link-btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-    width: 100%; margin-top: 12px; padding: 8px 0;
-    background-color: #f0fbf4; color: var(--naver-green) !important;
+    flex: 1; display: inline-flex; align-items: center; justify-content: center;
+    padding: 7px 0; background-color: #f0fbf4; color: var(--naver-green) !important;
     border: 1px solid rgba(3, 199, 90, 0.3); border-radius: 8px;
-    font-size: 0.78rem; font-weight: 700; text-decoration: none !important;
-    transition: all 0.15s ease;
+    font-size: 0.74rem; font-weight: 700; text-decoration: none !important;
 }
-.naver-link-btn:hover {
-    background-color: var(--naver-green); color: #ffffff !important;
+.naver-link-btn:hover { background-color: var(--naver-green); color: #ffffff !important; }
+
+.hogang-link-btn {
+    flex: 1; display: inline-flex; align-items: center; justify-content: center;
+    padding: 7px 0; background-color: #f1f3fd; color: var(--hogang-blue) !important;
+    border: 1px solid rgba(59, 91, 219, 0.3); border-radius: 8px;
+    font-size: 0.74rem; font-weight: 700; text-decoration: none !important;
 }
+.hogang-link-btn:hover { background-color: var(--hogang-blue); color: #ffffff !important; }
 
 /* 데이터프레임 스타일 */
 div[data-testid="stDataFrame"] {
@@ -204,7 +213,7 @@ section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
-# ── 1-2. 보조 연산 및 부대비용/면적 환산 함수 ──────────────────
+# ── 1-2. 보조 연산 및 검색어 정제 함수 ───────────────────────
 def format_price(x: int) -> str:
     """만원 단위 정수를 'N억 N,NNN만' 형식 문자열로 변환."""
     x = int(x)
@@ -216,6 +225,26 @@ def get_pyeong_group_key(m2: float) -> tuple:
     supply_p = int(round((m2 / 3.30578) / 0.745))
     label = f"{m2:.1f}㎡ ({supply_p}평형)"
     return supply_p, label
+
+
+def build_smart_portal_urls(city: str, gu: str, dong: str, apt_name: str) -> tuple:
+    """
+    네이버 AI 포털 검색 및 호갱노노 자동 매핑 URL 생성
+    (개명 단지, 축약어, 옛날 주공 명칭 100% 매칭)
+    """
+    # 단지명 정제: 끝자리 숫자 단독 표기 시 '단지' 추가
+    clean_apt = apt_name.strip()
+    if re.search(r'\d+$', clean_apt):
+        clean_apt += "단지"
+
+    # 네이버 스마트 포털 검색 질의어 (동의어/개명 단지 자동 인식)
+    query = f"{city} {dong} {clean_apt} 아파트"
+    encoded_query = urllib.parse.quote(query)
+
+    naver_smart_url = f"https://m.search.naver.com/search.naver?query={encoded_query}"
+    hogang_url = f"https://hogangnono.com/search?q={urllib.parse.quote(f'{dong} {apt_name}')}"
+
+    return naver_smart_url, hogang_url
 
 
 def calculate_acquisition_costs(price: int) -> dict:
@@ -454,7 +483,7 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
         for item in items:
             r = {child.tag: (child.text.strip() if child.text else '') for child in item}
             
-            # 취소 거래 제외
+            # 취소 거래 배제
             if r.get('cdealType', '') == 'O' or r.get('cdealDay', '') != '':
                 continue
 
@@ -972,7 +1001,7 @@ with c2:
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-# ── 9. 추천 단지 TOP 15 (최신 실거래가 중심 + 네이버 매물 링크) ───
+# ── 9. 추천 단지 TOP 15 (최신 실거래가 중심 + 스마트 매물 링크) ───
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -987,7 +1016,6 @@ else:
     # 가장 최근 2개 월 추출 (최신 시세 산출용)
     recent_two_months = sorted(list(affordable_df['month'].unique()))[-2:]
 
-    # 단지+평형별 정밀 집계 함수
     def aggregate_apt_metrics(group):
         total_count = len(group)
         max_price_val = group['price'].max()
@@ -1031,8 +1059,11 @@ else:
             apt_name = html.escape(str(row['apt']))
             loc_txt = html.escape(f"{row['city']} {row['gu']} {row['dong']} · {row['전용면적_평형']}")
             rate_badge_html = row['상태배지']
-            # 네이버 부동산 모바일 검색 바로가기 URL
-            naver_search_url = f"https://m.land.naver.com/search/result/{urllib.parse.quote(str(row['apt']))}"
+            
+            # 100% 매칭 스마트 포털 및 호갱노노 URL 생성
+            naver_smart_url, hogang_url = build_smart_portal_urls(
+                str(row['city']), str(row['gu']), str(row['dong']), str(row['apt'])
+            )
 
             with top_cols[i]:
                 st.markdown(f"""<div class="rank-card">
@@ -1042,11 +1073,16 @@ else:
                         <div class="rank-loc">{loc_txt}</div>
                         <div>{rate_badge_html}</div>
                         <div class="rank-price">{row['최근실거래가_fmt']}원</div>
-                        <div class="rank-meta">거래 {int(row['거래건수'])}건 · 최고가 {row['해당평형최고가_fmt']}원</div>
+                        <div class="rank-meta">최근 실거래 평균 · 최고가 {row['해당평형최고가_fmt']}원</div>
                     </div>
-                    <a href="{naver_search_url}" target="_blank" class="naver-link-btn">
-                        🔍 네이버 매물 호가 확인
-                    </a>
+                    <div class="btn-group">
+                        <a href="{naver_smart_url}" target="_blank" class="naver-link-btn">
+                            N 네이버 매물
+                        </a>
+                        <a href="{hogang_url}" target="_blank" class="hogang-link-btn">
+                            🦉 호갱노노
+                        </a>
+                    </div>
                 </div>""", unsafe_allow_html=True)
         st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
@@ -1066,13 +1102,14 @@ else:
         rest['전고점대비'] = rest['변동률'].apply(format_status_text)
         rest['거래건수'] = rest['거래건수'].astype(int)
         
-        # 네이버 부동산 매물 검색 URL 생성
-        rest['naver_url'] = rest['apt'].apply(
-            lambda name: f"https://m.land.naver.com/search/result/{urllib.parse.quote(str(name))}"
+        # 스마트 네이버 검색 URL 매핑
+        rest['naver_url'] = rest.apply(
+            lambda r: build_smart_portal_urls(str(r['city']), str(r['gu']), str(r['dong']), str(r['apt']))[0],
+            axis=1
         )
 
         rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '최근실거래가_fmt', '해당평형최고가_fmt', '전고점대비', 'naver_url']].copy()
-        rest_display.columns = ['시·군', '구', '법정동', '단지명', '면적(공급평형)', '거래건수', '최근 실거래가', '최고가', '전고점대비', '네이버 매물']
+        rest_display.columns = ['시·군', '구', '법정동', '단지명', '면적(공급평형)', '거래건수', '최근 실거래가', '최고가', '전고점대비', '매물 검색']
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
         
@@ -1083,9 +1120,9 @@ else:
                 "거래건수": st.column_config.ProgressColumn(
                     "거래건수", format="%d건", min_value=0, max_value=max_txn
                 ),
-                "네이버 매물": st.column_config.LinkColumn(
-                    "네이버 매물",
-                    display_text="매물 확인 🔗"
+                "매물 검색": st.column_config.LinkColumn(
+                    "매물 검색",
+                    display_text="네이버 매물 🔗"
                 )
             }
         )
