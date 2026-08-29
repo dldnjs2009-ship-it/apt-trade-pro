@@ -612,7 +612,7 @@ else:
         step=5,
         format="%d㎡"
     )
-    slider_min_m2, slider_max_m2 = slider_m2_range
+    slider_min_m2, slider_max_m2 = slider_min_m2_range = slider_m2_range
 
 st.sidebar.markdown("---")
 
@@ -903,8 +903,8 @@ else:
 
 st.markdown(kpi_html, unsafe_allow_html=True)
 
-# ── 8. 차트 및 동별 순위표 ────────────────────────────────
-c1, c2 = st.columns([3, 2])
+# ── 8. 차트 및 동별 순위표 (가로 비율 최적화: 차트 40% : 순위표 60%) ───
+c1, c2 = st.columns([2, 3])
 
 display_title = f"{selected_sido} {scope_name}"
 if selected_sido == "경기도" and selected_gu != f"{selected_city} 전체":
@@ -913,7 +913,7 @@ if selected_dong != '전체 보기':
     display_title += f" {selected_dong}"
 
 with c1:
-    st.markdown(f'<div class="section-title">📈 {display_title} 월별 거래량 추이</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">📈 월별 거래량 추이</div>', unsafe_allow_html=True)
     monthly_series = affordable_df['month'].value_counts().sort_index()
     fig = go.Figure(go.Bar(
         x=monthly_series.index,
@@ -924,9 +924,9 @@ with c1:
     fig.update_layout(
         plot_bgcolor="#fcfcfb",
         paper_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=10, r=10, t=10, b=10),
+        margin=dict(l=6, r=6, t=10, b=10),
         height=290,
-        font=dict(family="Pretendard, sans-serif", color="#52514e", size=12),
+        font=dict(family="Pretendard, sans-serif", color="#52514e", size=11),
         xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
         yaxis=dict(gridcolor="#e1e0d9", zeroline=False),
         hoverlabel=dict(bgcolor="#184f95", font_color="#ffffff", font_family="Pretendard, sans-serif"),
@@ -968,14 +968,10 @@ else:
 if affordable_df.empty:
     st.info("현재 설정된 조건(면적/예산 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
 else:
-    # 전체 조회 기간의 월 목록 정렬 (초기 2개월 vs 최근 2개월 추출용)
     all_period_months = sorted(list(affordable_df['month'].unique()))
     
-    # 5~6개월 전 초기 구간 (예: 3~4월)
     early_fixed_months = all_period_months[:2] if len(all_period_months) >= 2 else all_period_months
-    # 최근 구간 (예: 7~8월)
     late_fixed_months = all_period_months[-2:] if len(all_period_months) >= 2 else all_period_months
-    # 전반부 3개월 구간 (예외 보정용)
     half_split_idx = max(1, len(all_period_months) // 2)
     first_half_months = all_period_months[:half_split_idx]
 
@@ -984,12 +980,11 @@ else:
         max_price_val = group['price'].max()
         mean_area = group['area'].mean()
         
-        # 1. 가격 계산 시 저층(1~3층) 및 직거래 제외
         clean_group = group[(group['floor'] > 3) & (group['deal_type'] != '직거래')]
         if clean_group.empty:
             clean_group = group
 
-        # 2. 최근 실거래가 산출 (최근 1~2개월 우선 -> 없을 시 해당 단지의 최근 거래 반영)
+        # 1. 최근 실거래가 산출
         recent_deals = clean_group[clean_group['month'].isin(late_fixed_months)]
         if not recent_deals.empty:
             recent_mean = recent_deals['price'].mean()
@@ -997,7 +992,7 @@ else:
             latest_month_of_apt = clean_group['month'].max()
             recent_mean = clean_group[clean_group['month'] == latest_month_of_apt]['price'].mean()
 
-        # 3. 5~6개월 전 초기 기준 시세 산출 (5~6개월 전 우선 -> 없을 시 전반부 첫 거래 반영)
+        # 2. 5~6개월 전 초기 기준 시세 산출
         base_deals = clean_group[clean_group['month'].isin(early_fixed_months)]
         if not base_deals.empty:
             base_mean = base_deals['price'].mean()
@@ -1009,7 +1004,7 @@ else:
                 earliest_month_of_apt = clean_group['month'].min()
                 base_mean = clean_group[clean_group['month'] == earliest_month_of_apt]['price'].mean()
 
-        # 4. 6개월 전 대비 시세 변동률(모멘텀) 산출
+        # 3. 6개월 전 대비 시세 변동률(모멘텀) 산출
         if base_mean > 0:
             trend_rate = ((recent_mean - base_mean) / base_mean) * 100
         else:
@@ -1028,7 +1023,6 @@ else:
         aggregate_apt_metrics
     ).reset_index()
 
-    # 6개월 전 대비 시세 추세 배지 생성 (급상승/상승/보합/조정/급락)
     apt_rank['상태배지'] = apt_rank['변동률'].apply(get_trend_badge)
 
     apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(15).reset_index(drop=True)
@@ -1059,7 +1053,6 @@ else:
                 </div>""", unsafe_allow_html=True)
         st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
-    # 4위 이하 단지 표
     rest = apt_rank.iloc[3:].copy()
     if not rest.empty:
         def format_trend_text(val):
