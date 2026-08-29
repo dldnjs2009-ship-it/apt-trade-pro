@@ -8,16 +8,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ── 1. 페이지 설정 ──────────────────────────────────────
 st.set_page_config(
-    page_title="전국 아파트 실거래 거래량 대시보드",
-    page_icon="🏢",
+    page_title="전국 아파트 실거래가 및 내집마련 대시보드",
+    page_icon="🏠",
     layout="wide"
 )
 
-# ── 2. 행정구역 및 법정동 코드 체계 정규화 ───────────────
+# ── 2. 행정구역 및 법정동 코드 매핑 ─────────────────────
 DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
 
-# 광역자치단체별 행정구역 구조 (도 지역: 시/군 -> 구, 특별시/광역시: 바로 구)
 REGION_STRUCTURE = {
     "경기도": {
         "수원시": {"영통구": "41117", "장안구": "41111", "권선구": "41113", "팔달구": "41115"},
@@ -85,7 +84,7 @@ REGION_STRUCTURE = {
     }
 }
 
-# ── 3. 단일 월/구 고속 API 수집 태스크 ────────────────────
+# ── 3. 멀티스레딩 고속 수집 태스크 ────────────────────────
 def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
     headers = {'User-Agent': 'Mozilla/5.0'}
     task_records = []
@@ -115,7 +114,6 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
             items = root.findall('.//item')
             for item in items:
                 r = {child.tag: (child.text.strip() if child.text else '') for child in item}
-                
                 if r.get('cdealType', '') == 'O' or r.get('cdealDay', '') != '':
                     continue
                 
@@ -139,7 +137,6 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
     return task_records
 
 
-# ── 4. 병렬 수집 및 캐싱 (광역 전체 지원) ─────────────────
 @st.cache_data(ttl=86400)
 def fetch_target_records(target_list_tuples):
     now = datetime.now()
@@ -151,7 +148,6 @@ def fetch_target_records(target_list_tuples):
             tasks.append((code, deal_ymd, sido, city, gu))
 
     all_records = []
-    # 광역 전체 조회를 위해 워커 수 20개로 확대
     with ThreadPoolExecutor(max_workers=20) as executor:
         futures = [executor.submit(fetch_single_month_task, *task) for task in tasks]
         for future in as_completed(futures):
@@ -165,13 +161,61 @@ def fetch_target_records(target_list_tuples):
     return pd.DataFrame(all_records)
 
 
-# ── 5. UI 및 동적 계층형 필터 ───────────────────────────
-st.title("📊 전국 동네별 아파트 실거래 거래량 대시보드")
-st.caption("국토교통부 실거래가 오픈 API 실시간 연동 (병렬 고속 수집 & 24시간 캐싱)")
+# ── 4. 사이드바: 내 자본금 기반 예산 계산기 ─────────────────
+st.sidebar.header("💰 내 자본금 맞춤 계산기")
+
+# 자본금 입력 (기본 3억)
+my_capital = st.sidebar.number_input(
+    "내 보유 현금/자본금 (만원)",
+    min_value=1000,
+    max_value=300000,
+    value=30000,
+    step=1000,
+    help="부동산 매수에 투입 가능한 순수 자기자본입니다."
+)
+
+# LTV / 대출비율 설정 (기본 70%)
+ltv_rate = st.sidebar.slider("희망 대출 비율 (LTV %)", min_value=0, max_value=80, value=70, step=5)
+loan_interest = st.sidebar.slider("대출 예상 금리 (%)", min_value=2.0, max_value=8.0, value=4.0, step=0.1)
+loan_term_years = st.sidebar.selectbox("대출 만기 (년)", [10, 20, 30, 40], index=2)
+
+# 가용 순수 매수자금 (취득세/복비 등 부대비용 3% 공제)
+effective_capital = my_capital * 0.97
+
+# 최대 매수 가능 금액 계산
+if ltv_rate < 100:
+    max_affordable_price = int(effective_capital / (1 - (ltv_rate / 100)))
+else:
+    max_affordable_price = int(effective_capital * 2)
+
+# 최대 대출액 및 월 상환액 계산
+max_loan_amount = max_affordable_price - my_capital
+if max_loan_amount > 0:
+    monthly_rate = (loan_interest / 100) / 12
+    total_months = loan_term_years * 12
+    monthly_payment = int(
+        (max_loan_amount * 10000 * monthly_rate * ((1 + monthly_rate) ** total_months))
+        / (((1 + monthly_rate) ** total_months) - 1)
+    )
+else:
+    monthly_payment = 0
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📋 내 예산 분석 결과")
+st.sidebar.write(f"• **최대 매수 가능가:** **{max_affordable_price // 10000}억 {(max_affordable_price % 10000):,}만원**")
+st.sidebar.write(f"• **필요 대출금액:** {max_loan_amount // 10000}억 {(max_loan_amount % 10000):,}만원")
+st.sidebar.write(f"• **월 예상 원리금:** **{monthly_payment // 10000:,}만원** / 월")
+
+# 예산 필터 적용 토글
+filter_by_budget = st.sidebar.checkbox("🎯 내 예산 이하 단지만 필터링", value=True)
+
+
+# ── 5. 메인 UI 및 계층형 지역 필터 ────────────────────────
+st.title("📊 전국 아파트 실거래가 및 내집마련 대시보드")
+st.caption("국토교통부 실거래가 오픈 API 연동 (내 자본금 맞춤 단지 추천)")
 
 col1, col2, col3, col4 = st.columns(4)
 
-# [1] 시·도 선택
 with col1:
     sido_list = list(REGION_STRUCTURE.keys())
     selected_sido = st.selectbox("1️⃣ 시·도", sido_list, index=sido_list.index("경기도") if "경기도" in sido_list else 0)
@@ -179,16 +223,14 @@ with col1:
 sido_data = REGION_STRUCTURE[selected_sido]
 target_codes_to_fetch = []
 
-# 도(Province) 단위인 경우 (경기도 등): 4단계 계층
 if selected_sido == "경기도":
     with col2:
         city_options = ["경기도 전체"] + list(sido_data.keys())
-        selected_city = st.selectbox("2️⃣ 시·군", city_options, index=1)  # 기본: 수원시
+        selected_city = st.selectbox("2️⃣ 시·군", city_options, index=1)
 
     if selected_city == "경기도 전체":
         with col3:
             selected_gu = st.selectbox("3️⃣ 구", ["전체"])
-        # 경기도 전역 주요 시·구 전체 큐 생성
         for c_name, gu_dict in sido_data.items():
             for g_name, code in gu_dict.items():
                 target_codes_to_fetch.append((code, selected_sido, c_name, g_name))
@@ -196,10 +238,7 @@ if selected_sido == "경기도":
         gu_dict = sido_data[selected_city]
         gu_keys = list(gu_dict.keys())
         with col3:
-            if len(gu_keys) > 1:
-                gu_options = [f"{selected_city} 전체"] + gu_keys
-            else:
-                gu_options = gu_keys
+            gu_options = [f"{selected_city} 전체"] + gu_keys if len(gu_keys) > 1 else gu_keys
             selected_gu = st.selectbox("3️⃣ 구", gu_options)
 
         if selected_gu == f"{selected_city} 전체":
@@ -208,15 +247,11 @@ if selected_sido == "경기도":
         else:
             code = gu_dict[selected_gu]
             target_codes_to_fetch.append((code, selected_sido, selected_city, selected_gu))
-
-# 특별시/광역시/특별자치시인 경우 (서울, 인천, 부산 등): 3단계 직접 계층
 else:
     with col2:
         gu_options = [f"{selected_sido} 전체"] + list(sido_data.keys())
         selected_gu_direct = st.selectbox("2️⃣ 구·군", gu_options)
-
     with col3:
-        # 광역시는 3번째 필터 불필요 (비활성화 표시)
         st.selectbox("3️⃣ 상세 구", ["-"], disabled=True)
 
     if selected_gu_direct == f"{selected_sido} 전체":
@@ -226,56 +261,49 @@ else:
         code = sido_data[selected_gu_direct]
         target_codes_to_fetch.append((code, selected_sido, selected_sido, selected_gu_direct))
 
-# 데이터 수집 진행
 scope_name = selected_city if selected_sido == "경기도" else selected_gu_direct
-with st.spinner(f"'{selected_sido} {scope_name}' 실거래 데이터를 고속 수집 중입니다..."):
+with st.spinner(f"'{selected_sido} {scope_name}' 실거래 데이터를 조회 중입니다..."):
     df = fetch_target_records(tuple(target_codes_to_fetch))
 
-# [4] 읍·면·동 선택
 with col4:
-    if not df.empty:
-        dong_list = ['전체 보기'] + sorted(list(df['dong'].unique()))
-    else:
-        dong_list = ['전체 보기']
+    dong_list = ['전체 보기'] + sorted(list(df['dong'].unique())) if not df.empty else ['전체 보기']
     selected_dong = st.selectbox("4️⃣ 읍·면·동", dong_list)
 
 if df.empty:
     st.warning("선택하신 지역의 최근 6개월 거래 내역이 없거나 데이터를 불러올 수 없습니다.")
     st.stop()
 
+# 동 필터링 적용
 view_df = df if selected_dong == '전체 보기' else df[df['dong'] == selected_dong]
 
-# ── 6. 상단 요약 메트릭 카드 ─────────────────────────────
-# 동별 집계 (지역명이 겹치지 않도록 구+동 매핑)
-df['full_loc'] = df['city'] + " " + df['gu'] + " " + df['dong']
-loc_counts = df['full_loc'].value_counts()
+# 예산 필터링 적용 여부
+if filter_by_budget:
+    affordable_df = view_df[view_df['price'] <= max_affordable_price]
+else:
+    affordable_df = view_df
 
-top_loc_str = loc_counts.index[0] if not loc_counts.empty else '-'
-top_val = loc_counts.iloc[0] if not loc_counts.empty else 0
-top_pct = (top_val / len(df) * 100) if len(df) > 0 else 0
-
-m1, m2, m3 = st.columns(3)
-m1.metric("🔥 최다 거래 지역 (1위)", f"{top_loc_str}", f"{top_val:,}건 ({top_pct:.1f}%)")
-m2.metric("📦 선택 구역 총 거래량", f"{len(view_df):,}건")
-m3.metric("🏢 집계 대상 동 개수", f"{len(df['dong'].unique()):,}개 동")
+# ── 6. 상단 요약 통계 메트릭 ──────────────────────────────
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("💵 내 자본금 기준 최대 매수가", f"{max_affordable_price // 10000}억 {max_affordable_price % 10000:,}만원")
+m2.metric("💳 필요 대출금 (LTV 적용)", f"{max_loan_amount // 10000}억 {max_loan_amount % 10000:,}만원")
+m3.metric("🎯 매수 가능한 거래 건수", f"{len(affordable_df):,}건", f"전체 중 {len(affordable_df)/len(view_df)*100:.1f}%")
+m4.metric("🏦 월 예상 원리금 상환액", f"{monthly_payment // 10000:,}만원")
 
 st.divider()
 
-# ── 7. 월별 거래량 추이 차트 및 순위표 ───────────────────
+# ── 7. 매수 가능 단지 순위 및 월별 거래량 ────────────────
 c1, c2 = st.columns([3, 2])
 
-display_title = f"{selected_sido} {scope_name}"
-if selected_dong != '전체 보기':
-    display_title += f" {selected_dong}"
+display_title = f"{selected_sido} {scope_name}" + (f" {selected_dong}" if selected_dong != '전체 보기' else "")
 
 with c1:
     st.subheader(f"📈 {display_title} 월별 거래량 추이")
-    monthly_series = view_df['month'].value_counts().sort_index()
+    monthly_series = affordable_df['month'].value_counts().sort_index()
     st.bar_chart(monthly_series)
 
 with c2:
     st.subheader(f"🥇 {scope_name} 동별 거래량 순위")
-    rank_df = df.groupby(['city', 'gu', 'dong']).size().reset_index(name='거래건수')
+    rank_df = affordable_df.groupby(['city', 'gu', 'dong']).size().reset_index(name='거래건수')
     rank_df = rank_df.sort_values(by='거래건수', ascending=False)
     rank_df.columns = ['시·군', '구', '동명', '거래건수']
     rank_df.index = range(1, len(rank_df) + 1)
@@ -283,18 +311,29 @@ with c2:
 
 st.divider()
 
-# ── 8. 주요 아파트 단지 순위 (TOP 10) ─────────────────
-st.subheader(f"🏆 {display_title} 주요 아파트 단지 순위 (TOP 10)")
-apt_rank = view_df.groupby(['city', 'gu', 'dong', 'apt']).agg(
-    거래건수=('price', 'count'),
-    평균거래가_만원=('price', 'mean'),
-    최고가_만원=('price', 'max')
-).reset_index()
+# ── 8. 내 예산 맞춤 추천 단지 TOP 15 ──────────────────────
+st.subheader(f"🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15")
 
-apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(10)
-apt_rank['평균거래가_만원'] = apt_rank['평균거래가_만원'].astype(int).apply(lambda x: f"{x:,}")
-apt_rank['최고가_만원'] = apt_rank['최고가_만원'].apply(lambda x: f"{x:,}")
-apt_rank.columns = ['시·군', '구', '법정동', '단지명', '거래건수', '평균 거래가(만원)', '최고 거래가(만원)']
-apt_rank.index = range(1, len(apt_rank) + 1)
+if affordable_df.empty:
+    st.info("현재 설정된 예산으로 매수 가능한 실거래 아파트가 없습니다. 자본금이나 LTV 비율을 올려보세요.")
+else:
+    apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt']).agg(
+        거래건수=('price', 'count'),
+        평균실거래가=('price', 'mean'),
+        최근최고가=('price', 'max'),
+        전용면적_평균=('area', 'mean')
+    ).reset_index()
 
-st.dataframe(apt_rank, use_container_width=True)
+    apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(15)
+    
+    # 억/만원 단위 변환 포맷팅
+    apt_rank['평균실거래가'] = apt_rank['평균실거래가'].astype(int).apply(lambda x: f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만")
+    apt_rank['최근최고가'] = apt_rank['최근최고가'].astype(int).apply(lambda x: f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만")
+    apt_rank['전용면적_평형'] = apt_rank['전용면적_평균'].apply(lambda x: f"{x:.1f}㎡ ({x/3.30578:.0f}평)")
+    
+    # 출력용 컬럼 정리
+    display_table = apt_rank[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '평균실거래가', '최근최고가']]
+    display_table.columns = ['시·군', '구', '법정동', '단지명', '평균 면적', '거래건수', '평균 실거래가', '최근 최고가']
+    display_table.index = range(1, len(display_table) + 1)
+
+    st.dataframe(display_table, use_container_width=True)
