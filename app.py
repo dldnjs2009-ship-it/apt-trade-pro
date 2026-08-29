@@ -2,12 +2,17 @@ import streamlit as st
 import pandas as pd
 import requests
 import xml.etree.ElementTree as ET
-import time
 from datetime import datetime
+from dateutil.relativedelta import relativedelta
 
-st.set_page_config(page_title="수원시 아파트 거래량 분석", layout="wide")
+# ── 1. 페이지 기본 설정 ──────────────────────────────────
+st.set_page_config(
+    page_title="수원시 아파트 실거래 거래량 대시보드",
+    page_icon="📊",
+    layout="wide"
+)
 
-# ── 1. 설정 및 API 데이터 자동 수집/캐싱 ─────────────────────
+# ── 2. 기본 상수 및 설정 ──────────────────────────────────
 DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
 
@@ -18,14 +23,19 @@ SUWON_REGIONS = {
     '41117': '영통구'
 }
 
-# 24시간(86400초)마다 자동으로 API를 다시 호출하여 최신화
+# ── 3. 데이터 자동 수집 및 캐싱 (24시간 주기 갱신) ─────────
 @st.cache_data(ttl=86400)
 def load_suwon_data():
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
     
-    # 최근 6개월 자동 계산 (예: 2024년 1월 ~ 6월 등)
-    # 현재 연도 기준으로 최근 6개월 계약년월 목록 생성
-    target_months = ['202401', '202402', '202403', '202404', '202405', '202406']
+    # 현재 날짜 기준 최근 6개월 YYYYMM 목록 동적 생성
+    now = datetime.now()
+    target_months = []
+    for i in range(5, -1, -1):
+        target_date = now - relativedelta(months=i)
+        target_months.append(target_date.strftime('%Y%m'))
     
     records = []
     for lawd_cd, gu in SUWON_REGIONS.items():
@@ -44,12 +54,20 @@ def load_suwon_data():
                     if res.status_code != 200:
                         break
                     root = ET.fromstring(res.content)
+                    
+                    # 응답 검증
+                    result_code = root.find('.//resultCode')
+                    if result_code is not None and result_code.text not in ['00', '000']:
+                        break
+
                     total_tag = root.find('.//totalCount')
                     total = int(total_tag.text) if total_tag is not None and total_tag.text else 0
                     
                     items = root.findall('.//item')
                     for item in items:
                         r = {child.tag: (child.text.strip() if child.text else '') for child in item}
+                        
+                        # 취소/해제 거래 제외
                         if r.get('cdealType', '') == 'O' or r.get('cdealDay', '') != '':
                             continue
                         
@@ -59,21 +77,24 @@ def load_suwon_data():
                             'gu': gu,
                             'dong': r.get('umdNm', ''),
                             'apt': r.get('aptNm', ''),
+                            'area': float(r.get('excluUseAr', 0) or 0),
                             'price': int(str(r.get('dealAmount', '0')).replace(',', '').strip() or 0),
                             'month': f"{r.get('dealYear', '')}-{str(r.get('dealMonth', '')).zfill(2)}"
                         })
+                    
                     if len(items) >= total or len(items) == 0:
                         break
                     page += 1
                 except Exception:
                     break
+
     return pd.DataFrame(records)
 
-# ── 2. 대시보드 화면 구성 ─────────────────────────────────
+# ── 4. 대시보드 UI 및 통계 렌더링 ──────────────────────────
 st.title("📊 수원시 동네별 아파트 실거래 거래량 대시보드")
-st.caption("국토교통부 실거래가 오픈 API 기반 실시간 집계")
+st.caption("국토교통부 실거래가 오픈 API 실시간 연동 (매일 자동 갱신)")
 
-with st.spinner("국토교통부 실거래 데이터를 불러오는 중입니다..."):
+with st.spinner("국토교통부 최신 실거래 데이터를 불러오는 중입니다..."):
     df = load_suwon_data()
 
 if df.empty:
@@ -94,20 +115,20 @@ with col_f2:
 
 view_df = filtered_by_gu if selected_dong == '전체 보기' else filtered_by_gu[filtered_by_gu['dong'] == selected_dong]
 
-# [상단 요약 메트릭]
+# [상단 핵심 요약 메트릭 카드]
 dong_counts = filtered_by_gu['dong'].value_counts()
 top_dong_name = dong_counts.index[0] if not dong_counts.empty else '-'
 top_dong_val = dong_counts.iloc[0] if not dong_counts.empty else 0
 top_dong_pct = (top_dong_val / len(filtered_by_gu) * 100) if len(filtered_by_gu) > 0 else 0
 
 m1, m2, m3 = st.columns(3)
-m1.metric("🔥 최다 거래 지역 (1위)", f"{top_dong_name}", f"{top_dong_val}건 ({top_dong_pct:.1f}%)")
-m2.metric("📦 선택 구역 누적 거래량", f"{len(view_df):,}건")
-m3.metric("🏢 집계 대상 동 개수", f"{len(dong_counts)}개 동")
+m1.metric("🔥 선택 구역 최다 거래 지역 (1위)", f"{top_dong_name}", f"{top_dong_val:,}건 ({top_dong_pct:.1f}%)")
+m2.metric("📦 선택 조건 누적 거래량", f"{len(view_df):,}건")
+m3.metric("🏢 집계 대상 동 개수", f"{len(dong_counts):,}개 동")
 
 st.divider()
 
-# [차트 & 동별 순위]
+# [차트 & 동별 순위표 (2단 그리드)]
 c1, c2 = st.columns([3, 2])
 
 with c1:
@@ -125,7 +146,7 @@ with c2:
 
 st.divider()
 
-# [주요 아파트 단지 순위]
+# [주요 아파트 단지 순위 (TOP 10)]
 st.subheader("🏆 선택 지역 주요 단지 거래 순위 (TOP 10)")
 apt_rank = view_df.groupby(['gu', 'dong', 'apt']).size().reset_index(name='거래건수')
 apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(10)
