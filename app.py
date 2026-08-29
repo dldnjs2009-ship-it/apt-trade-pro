@@ -4,8 +4,9 @@ import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ── 1. 페이지 기본 설정 ──────────────────────────────────
+# ── 1. 페이지 설정 ──────────────────────────────────────
 st.set_page_config(
     page_title="전국 아파트 실거래 거래량 대시보드",
     page_icon="🏢",
@@ -16,30 +17,15 @@ st.set_page_config(
 DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
 
-# 계층 구조: 시·도 -> 시·군 -> 구(법정동코드 5자리)
 NATIONWIDE_REGIONS = {
     "경기도": {
-        "수원시": {
-            "영통구": "41117", "장안구": "41111", "권선구": "41113", "팔달구": "41115"
-        },
-        "성남시": {
-            "분당구": "41135", "수정구": "41131", "중원구": "41133"
-        },
-        "용인시": {
-            "수지구": "41465", "기흥구": "41463", "처인구": "41461"
-        },
-        "고양시": {
-            "일산동구": "41285", "일산서구": "41287", "덕양구": "41281"
-        },
-        "안양시": {
-            "동안구": "41173", "만안구": "41171"
-        },
-        "안산시": {
-            "단원구": "41273", "상록구": "41271"
-        },
-        "부천시": {
-            "원미구": "41192", "소사구": "41194", "오정구": "41196"
-        },
+        "수원시": {"영통구": "41117", "장안구": "41111", "권선구": "41113", "팔달구": "41115"},
+        "성남시": {"분당구": "41135", "수정구": "41131", "중원구": "41133"},
+        "용인시": {"수지구": "41465", "기흥구": "41463", "처인구": "41461"},
+        "고양시": {"일산동구": "41285", "일산서구": "41287", "덕양구": "41281"},
+        "안양시": {"동안구": "41173", "만안구": "41171"},
+        "안산시": {"단원구": "41273", "상록구": "41271"},
+        "부천시": {"원미구": "41192", "소사구": "41194", "오정구": "41196"},
         "화성시": {"전체 (구 없음)": "41590"},
         "평택시": {"전체 (구 없음)": "41220"},
         "남양주시": {"전체 (구 없음)": "41360"},
@@ -154,91 +140,104 @@ NATIONWIDE_REGIONS = {
     }
 }
 
-# ── 3. 구 단위 개별 수집 및 온디맨드 캐싱 ──────────────────
-@st.cache_data(ttl=86400)
-def fetch_single_gu_data(lawd_cd: str, sido: str, city: str, gu: str):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
+# ── 3. 단일 월/구 고속 수집 단위 함수 ─────────────────────
+def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    task_records = []
+    page = 1
     
-    # 최근 6개월 YYYYMM 동적 생성
-    now = datetime.now()
-    target_months = []
-    for i in range(5, -1, -1):
-        target_date = now - relativedelta(months=i)
-        target_months.append(target_date.strftime('%Y%m'))
-
-    records = []
-    for deal_ymd in target_months:
-        page = 1
-        while True:
-            params = {
-                'serviceKey': DECODING_KEY,
-                'LAWD_CD': lawd_cd,
-                'DEAL_YMD': deal_ymd,
-                'numOfRows': '1000',
-                'pageNo': str(page)
-            }
-            try:
-                res = requests.get(BASE_URL, params=params, headers=headers, timeout=15)
-                if res.status_code != 200:
-                    break
-                root = ET.fromstring(res.content)
-                
-                result_code = root.find('.//resultCode')
-                if result_code is not None and result_code.text not in ['00', '000']:
-                    break
-
-                total_tag = root.find('.//totalCount')
-                total = int(total_tag.text) if total_tag is not None and total_tag.text else 0
-                
-                items = root.findall('.//item')
-                for item in items:
-                    r = {child.tag: (child.text.strip() if child.text else '') for child in item}
-                    
-                    if r.get('cdealType', '') == 'O' or r.get('cdealDay', '') != '':
-                        continue
-                    
-                    records.append({
-                        'sido': sido,
-                        'city': city,
-                        'gu': gu,
-                        'dong': r.get('umdNm', '').strip(),
-                        'apt': r.get('aptNm', '').strip(),
-                        'area': float(r.get('excluUseAr', 0) or 0),
-                        'price': int(str(r.get('dealAmount', '0')).replace(',', '').strip() or 0),
-                        'month': f"{r.get('dealYear', '')}-{str(r.get('dealMonth', '')).zfill(2)}"
-                    })
-                
-                if len(items) >= total or len(items) == 0:
-                    break
-                page += 1
-            except Exception:
+    while True:
+        params = {
+            'serviceKey': DECODING_KEY,
+            'LAWD_CD': lawd_cd,
+            'DEAL_YMD': deal_ymd,
+            'numOfRows': '1000',
+            'pageNo': str(page)
+        }
+        try:
+            res = requests.get(BASE_URL, params=params, headers=headers, timeout=10)
+            if res.status_code != 200:
+                break
+            root = ET.fromstring(res.content)
+            
+            result_code = root.find('.//resultCode')
+            if result_code is not None and result_code.text not in ['00', '000']:
                 break
 
-    return pd.DataFrame(records)
+            total_tag = root.find('.//totalCount')
+            total = int(total_tag.text) if total_tag is not None and total_tag.text else 0
+            
+            items = root.findall('.//item')
+            for item in items:
+                r = {child.tag: (child.text.strip() if child.text else '') for child in item}
+                
+                if r.get('cdealType', '') == 'O' or r.get('cdealDay', '') != '':
+                    continue
+                
+                task_records.append({
+                    'sido': sido,
+                    'city': city,
+                    'gu': gu,
+                    'dong': r.get('umdNm', '').strip(),
+                    'apt': r.get('aptNm', '').strip(),
+                    'area': float(r.get('excluUseAr', 0) or 0),
+                    'price': int(str(r.get('dealAmount', '0')).replace(',', '').strip() or 0),
+                    'month': f"{r.get('dealYear', '')}-{str(r.get('dealMonth', '')).zfill(2)}"
+                })
+            
+            if len(items) >= total or len(items) == 0:
+                break
+            page += 1
+        except Exception:
+            break
+
+    return task_records
 
 
-# ── 4. UI 및 4단계 필터 구성 ──────────────────────────────
+# ── 4. 멀티스레딩 병렬 수집 & 캐싱 (속도 극대화) ───────────
+@st.cache_data(ttl=86400)
+def fetch_parallel_region_data(sido: str, city: str, gu_target_dict: dict):
+    now = datetime.now()
+    target_months = [(now - relativedelta(months=i)).strftime('%Y%m') for i in range(5, -1, -1)]
+
+    # 모든 구 × 모든 월 조합의 작업 큐 생성
+    tasks = []
+    for g_name, code in gu_target_dict.items():
+        for deal_ymd in target_months:
+            tasks.append((code, deal_ymd, sido, city, g_name))
+
+    all_records = []
+    # 최대 12개 스레드로 동시 요청 전송
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        futures = [executor.submit(fetch_single_month_task, *task) for task in tasks]
+        for future in as_completed(futures):
+            try:
+                res = future.result()
+                if res:
+                    all_records.extend(res)
+            except Exception:
+                pass
+
+    return pd.DataFrame(all_records)
+
+
+# ── 5. UI 및 4단계 필터 구성 ──────────────────────────────
 st.title("📊 전국 동네별 아파트 실거래 거래량 대시보드")
-st.caption("국토교통부 실거래가 오픈 API 연동 (구/시 단위 통합 집계 및 24시간 자동 캐싱)")
+st.caption("국토교통부 실거래가 오픈 API 연동 (멀티스레딩 고속 병렬 수집 & 24시간 캐싱)")
 
 col_sido, col_city, col_gu, col_dong = st.columns(4)
 
-# [1] 시·도 선택
 with col_sido:
     sido_list = list(NATIONWIDE_REGIONS.keys())
     default_sido_idx = sido_list.index("경기도") if "경기도" in sido_list else 0
     selected_sido = st.selectbox("1️⃣ 시·도", sido_list, index=default_sido_idx)
 
-# [2] 시·군 선택
 with col_city:
     city_dict = NATIONWIDE_REGIONS[selected_sido]
     city_list = list(city_dict.keys())
     default_city_idx = city_list.index("수원시") if "수원시" in city_list else 0
     selected_city = st.selectbox("2️⃣ 시·군", city_list, index=default_city_idx)
 
-# [3] 구 선택 (구가 여러 개일 때 'OO시 전체' 옵션 생성)
 gu_dict = city_dict[selected_city]
 gu_keys = list(gu_dict.keys())
 
@@ -249,20 +248,15 @@ with col_gu:
         gu_options = gu_keys
     selected_gu = st.selectbox("3️⃣ 구", gu_options)
 
-# [데이터 수집/병합 로직]
-with st.spinner(f"'{selected_sido} {selected_city} ({selected_gu})' 실거래 데이터를 조회 중입니다..."):
-    if selected_gu == f"{selected_city} 전체":
-        # 해당 시에 속한 모든 구의 데이터를 각각 불러와 병합 (각 구별로 캐시 저장됨)
-        dfs = []
-        for g_name, code in gu_dict.items():
-            df_g = fetch_single_gu_data(code, selected_sido, selected_city, g_name)
-            dfs.append(df_g)
-        df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
-    else:
-        target_code = gu_dict[selected_gu]
-        df = fetch_single_gu_data(target_code, selected_sido, selected_city, selected_gu)
+# 병렬 수집 대상 딕셔너리 결정
+if selected_gu == f"{selected_city} 전체":
+    target_gu_dict = gu_dict
+else:
+    target_gu_dict = {selected_gu: gu_dict[selected_gu]}
 
-# [4] 읍·면·동 선택
+with st.spinner(f"'{selected_sido} {selected_city} ({selected_gu})' 실거래 데이터를 고속 수집 중입니다..."):
+    df = fetch_parallel_region_data(selected_sido, selected_city, target_gu_dict)
+
 with col_dong:
     if not df.empty:
         dong_list = ['전체 보기'] + sorted(list(df['dong'].unique()))
@@ -274,11 +268,9 @@ if df.empty:
     st.warning(f"선택하신 지역의 최근 6개월 거래 내역이 없거나 데이터를 불러올 수 없습니다.")
     st.stop()
 
-# 동 필터링 적용
 view_df = df if selected_dong == '전체 보기' else df[df['dong'] == selected_dong]
 
-# ── 5. 상단 핵심 요약 통계 카드 ─────────────────────────
-# 구 단위가 포함된 동별 집계 (동명이 같을 수 있으므로 시/구/동 조합)
+# ── 6. 상단 요약 통계 카드 ─────────────────────────────────
 if selected_gu == f"{selected_city} 전체":
     dong_counts = df.groupby(['gu', 'dong']).size().sort_values(ascending=False)
     top_label = f"{dong_counts.index[0][1]} ({dong_counts.index[0][0]})" if not dong_counts.empty else '-'
@@ -299,10 +291,9 @@ m3.metric("🏢 구역 내 집계 동 개수", f"{total_dong_count:,}개 동")
 
 st.divider()
 
-# ── 6. 월별 거래량 추이 차트 및 동별 순위표 ──────────────
+# ── 7. 월별 거래량 추이 차트 및 동별 순위표 ──────────────
 c1, c2 = st.columns([3, 2])
 
-# 헤더 제목 구성
 if selected_gu == f"{selected_city} 전체":
     scope_title = f"{selected_city} 전체"
 elif selected_gu == "전체 (구 없음)":
@@ -331,7 +322,7 @@ with c2:
 
 st.divider()
 
-# ── 7. 주요 아파트 단지 순위 (TOP 10) ─────────────────
+# ── 8. 주요 아파트 단지 순위 (TOP 10) ─────────────────
 st.subheader(f"🏆 {scope_title} 주요 아파트 단지 순위 (TOP 10)")
 apt_rank = view_df.groupby(['city', 'gu', 'dong', 'apt']).agg(
     거래건수=('price', 'count'),
