@@ -5,7 +5,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import xml.etree.ElementTree as ET
 import urllib.parse
-import re
 import html
 import time
 import plotly.graph_objects as go
@@ -41,8 +40,6 @@ CUSTOM_CSS = """
     --good: #0ca30c;
     --danger: #e53e3e;
     --warning: #dd6b20;
-    --naver-green: #03c75a;
-    --hogang-blue: #3b5bdb;
 }
 
 html, body, [class*="css"] {
@@ -105,13 +102,12 @@ html, body, [class*="css"] {
     border: 1px solid var(--border-hairline);
     box-shadow: 0 6px 18px rgba(11,11,11,0.05);
     position: relative; height: 100%;
-    display: flex; flex-direction: column; justify-content: space-between;
 }
 .rank-badge { position: absolute; top: -12px; left: 14px; font-size: 1.5rem; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.12)); }
-.rank-apt { font-weight: 800; font-size: 1.0rem; margin-top: 8px; color: var(--ink-primary); line-height: 1.3; }
-.rank-loc { font-size: .76rem; color: var(--ink-muted); margin-top: 3px; }
-.rank-price { font-size: 1.35rem; font-weight: 800; color: var(--brand-accent); margin-top: 10px; font-variant-numeric: tabular-nums; }
-.rank-meta { font-size: .75rem; color: var(--ink-secondary); margin-top: 4px; }
+.rank-apt { font-weight: 800; font-size: 1.02rem; margin-top: 8px; color: var(--ink-primary); line-height: 1.3; }
+.rank-loc { font-size: .76rem; color: var(--ink-muted); margin-top: 4px; }
+.rank-price { font-size: 1.38rem; font-weight: 800; color: var(--brand-accent); margin-top: 10px; font-variant-numeric: tabular-nums; }
+.rank-meta { font-size: .76rem; color: var(--ink-secondary); margin-top: 5px; }
 
 /* 상태 배지 칩 */
 .badge-rate {
@@ -120,26 +116,6 @@ html, body, [class*="css"] {
 .badge-rate.bargain { background: rgba(229, 62, 62, 0.12); color: var(--danger); }
 .badge-rate.adjust { background: rgba(221, 107, 32, 0.12); color: var(--warning); }
 .badge-rate.high { background: rgba(42, 120, 214, 0.12); color: var(--brand-primary); }
-
-/* 링크 버튼 그룹 */
-.btn-group {
-    display: flex; gap: 6px; margin-top: 12px;
-}
-.naver-link-btn {
-    flex: 1; display: inline-flex; align-items: center; justify-content: center;
-    padding: 7px 0; background-color: #f0fbf4; color: var(--naver-green) !important;
-    border: 1px solid rgba(3, 199, 90, 0.3); border-radius: 8px;
-    font-size: 0.74rem; font-weight: 700; text-decoration: none !important;
-}
-.naver-link-btn:hover { background-color: var(--naver-green); color: #ffffff !important; }
-
-.hogang-link-btn {
-    flex: 1; display: inline-flex; align-items: center; justify-content: center;
-    padding: 7px 0; background-color: #f1f3fd; color: var(--hogang-blue) !important;
-    border: 1px solid rgba(59, 91, 219, 0.3); border-radius: 8px;
-    font-size: 0.74rem; font-weight: 700; text-decoration: none !important;
-}
-.hogang-link-btn:hover { background-color: var(--hogang-blue); color: #ffffff !important; }
 
 /* 데이터프레임 스타일 */
 div[data-testid="stDataFrame"] {
@@ -205,15 +181,15 @@ section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px
 
     .rank-card { padding: 12px 14px !important; margin-top: 10px !important; }
     .rank-badge { font-size: 1.3rem !important; top: -10px !important; }
-    .rank-apt { font-size: 0.92rem !important; }
-    .rank-price { font-size: 1.15rem !important; margin-top: 6px !important; }
+    .rank-apt { font-size: 0.95rem !important; }
+    .rank-price { font-size: 1.2rem !important; margin-top: 6px !important; }
 }
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
-# ── 1-2. 보조 연산 및 검색어 정제 함수 ───────────────────────
+# ── 1-2. 보조 연산 및 부대비용/면적 환산 함수 ──────────────────
 def format_price(x: int) -> str:
     """만원 단위 정수를 'N억 N,NNN만' 형식 문자열로 변환."""
     x = int(x)
@@ -225,26 +201,6 @@ def get_pyeong_group_key(m2: float) -> tuple:
     supply_p = int(round((m2 / 3.30578) / 0.745))
     label = f"{m2:.1f}㎡ ({supply_p}평형)"
     return supply_p, label
-
-
-def build_smart_portal_urls(city: str, gu: str, dong: str, apt_name: str) -> tuple:
-    """
-    네이버 AI 포털 검색 및 호갱노노 자동 매핑 URL 생성
-    (개명 단지, 축약어, 옛날 주공 명칭 100% 매칭)
-    """
-    # 단지명 정제: 끝자리 숫자 단독 표기 시 '단지' 추가
-    clean_apt = apt_name.strip()
-    if re.search(r'\d+$', clean_apt):
-        clean_apt += "단지"
-
-    # 네이버 스마트 포털 검색 질의어 (동의어/개명 단지 자동 인식)
-    query = f"{city} {dong} {clean_apt} 아파트"
-    encoded_query = urllib.parse.quote(query)
-
-    naver_smart_url = f"https://m.search.naver.com/search.naver?query={encoded_query}"
-    hogang_url = f"https://hogangnono.com/search?q={urllib.parse.quote(f'{dong} {apt_name}')}"
-
-    return naver_smart_url, hogang_url
 
 
 def calculate_acquisition_costs(price: int) -> dict:
@@ -1001,7 +957,7 @@ with c2:
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-# ── 9. 추천 단지 TOP 15 (최신 실거래가 중심 + 스마트 매물 링크) ───
+# ── 9. 추천 단지 TOP 15 (최신 실거래가 중심의 정갈한 UI) ─────────
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -1059,32 +1015,17 @@ else:
             apt_name = html.escape(str(row['apt']))
             loc_txt = html.escape(f"{row['city']} {row['gu']} {row['dong']} · {row['전용면적_평형']}")
             rate_badge_html = row['상태배지']
-            
-            # 100% 매칭 스마트 포털 및 호갱노노 URL 생성
-            naver_smart_url, hogang_url = build_smart_portal_urls(
-                str(row['city']), str(row['gu']), str(row['dong']), str(row['apt'])
-            )
 
             with top_cols[i]:
                 st.markdown(f"""<div class="rank-card">
-                    <div>
-                        <div class="rank-badge">{medals[i]}</div>
-                        <div class="rank-apt">{apt_name}</div>
-                        <div class="rank-loc">{loc_txt}</div>
-                        <div>{rate_badge_html}</div>
-                        <div class="rank-price">{row['최근실거래가_fmt']}원</div>
-                        <div class="rank-meta">최근 실거래 평균 · 최고가 {row['해당평형최고가_fmt']}원</div>
-                    </div>
-                    <div class="btn-group">
-                        <a href="{naver_smart_url}" target="_blank" class="naver-link-btn">
-                            N 네이버 매물
-                        </a>
-                        <a href="{hogang_url}" target="_blank" class="hogang-link-btn">
-                            🦉 호갱노노
-                        </a>
-                    </div>
+                    <div class="rank-badge">{medals[i]}</div>
+                    <div class="rank-apt">{apt_name}</div>
+                    <div class="rank-loc">{loc_txt}</div>
+                    <div>{rate_badge_html}</div>
+                    <div class="rank-price">{row['최근실거래가_fmt']}원</div>
+                    <div class="rank-meta">거래 {int(row['거래건수'])}건 · 최고가 {row['해당평형최고가_fmt']}원</div>
                 </div>""", unsafe_allow_html=True)
-        st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
     # 4위 이하 단지 표
     rest = apt_rank.iloc[3:].copy()
@@ -1101,15 +1042,9 @@ else:
 
         rest['전고점대비'] = rest['변동률'].apply(format_status_text)
         rest['거래건수'] = rest['거래건수'].astype(int)
-        
-        # 스마트 네이버 검색 URL 매핑
-        rest['naver_url'] = rest.apply(
-            lambda r: build_smart_portal_urls(str(r['city']), str(r['gu']), str(r['dong']), str(r['apt']))[0],
-            axis=1
-        )
 
-        rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '최근실거래가_fmt', '해당평형최고가_fmt', '전고점대비', 'naver_url']].copy()
-        rest_display.columns = ['시·군', '구', '법정동', '단지명', '면적(공급평형)', '거래건수', '최근 실거래가', '최고가', '전고점대비', '매물 검색']
+        rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '최근실거래가_fmt', '해당평형최고가_fmt', '전고점대비']].copy()
+        rest_display.columns = ['시·군', '구', '법정동', '단지명', '면적(공급평형)', '거래건수', '최근 실거래가', '최고가', '전고점대비']
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
         
@@ -1119,10 +1054,6 @@ else:
             column_config={
                 "거래건수": st.column_config.ProgressColumn(
                     "거래건수", format="%d건", min_value=0, max_value=max_txn
-                ),
-                "매물 검색": st.column_config.LinkColumn(
-                    "매물 검색",
-                    display_text="네이버 매물 🔗"
                 )
             }
         )
