@@ -2,27 +2,29 @@ import streamlit as st
 import pandas as pd
 import requests
 import xml.etree.ElementTree as ET
+import urllib.parse
 import time
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ── 1. 페이지 설정 ──────────────────────────────────────
+# ── 1. 페이지 기본 설정 ──────────────────────────────────
 st.set_page_config(
     page_title="전국 아파트 실거래가 및 내집마련 대시보드",
     page_icon="🏠",
     layout="wide"
 )
 
-# ── 2. 기본 설정 및 행정구역 매핑 ───────────────────────
+# ── 2. 기본 상수 및 행정구역 매핑 ───────────────────────
 DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
+ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
 
-# 동탄구(동탄 1·2신도시) 소속 법정동 목록
+# 동탄구(동탄 1·2신도시) 소속 법정동 전수 목록
 DONGTAN_DONGS = [
     '반송동', '석우동', '능동', '청계동', '영천동',
     '오산동', '신동', '목동', '산척동', '장지동',
-    '송동', '방교동', '금곡동'
+    '송동', '중동', '방교동', '금곡동'
 ]
 
 REGION_STRUCTURE = {
@@ -96,7 +98,7 @@ REGION_STRUCTURE = {
     }
 }
 
-# ── 3. 단일 월 고속 API 수집 태스크 ───────────────────────
+# ── 3. 단일 월 고속 API 수집 태스크 (2중 폴백 및 재시도) ────
 def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -110,19 +112,25 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
             'serviceKey': DECODING_KEY,
             'LAWD_CD': lawd_cd,
             'DEAL_YMD': deal_ymd,
-            'numOfRows': '500',
+            'numOfRows': '1000',
             'pageNo': str(page)
         }
         
         res = None
-        for attempt in range(2):
+        # 1차: params 방식 호출
+        try:
+            res = requests.get(BASE_URL, params=params, headers=headers, timeout=20)
+        except Exception:
+            pass
+            
+        # 2차: URL 직접 결합 방식(Encoding 키) 폴백
+        if res is None or res.status_code != 200 or '<item>' not in res.text:
+            fallback_url = f"{BASE_URL}?serviceKey={ENCODING_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=1000&pageNo={page}"
             try:
-                res = requests.get(BASE_URL, params=params, headers=headers, timeout=25)
-                if res.status_code == 200:
-                    break
+                res = requests.get(fallback_url, headers=headers, timeout=20)
             except Exception:
-                time.sleep(0.3)
-        
+                break
+
         if res is None or res.status_code != 200:
             break
             
@@ -148,8 +156,14 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
                 continue
             
             raw_dong = r.get('umdNm', '').strip()
+            # 읍·면 지역(예: "봉담읍 동화리")인 경우 읍·면 또는 동 단위 분리
             if not raw_dong:
                 raw_dong = r.get('aptDong', '').strip() or '기타'
+            else:
+                # "봉담읍 와우리" 형태에서 읍·면 단위로 통일하거나 세부동 유지
+                parts = raw_dong.split()
+                if len(parts) > 1 and parts[0].endswith(('읍', '면')):
+                    raw_dong = parts[0]  # 봉담읍, 향남읍 등으로 그룹화
                 
             task_records.append({
                 'sido': sido,
@@ -169,23 +183,20 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
     return task_records
 
 
+# 데이터가 있을 때만 캐시를 유지하는 함수
 @st.cache_data(ttl=86400)
-def fetch_target_records(target_list_tuples):
-    now = datetime.now()
-    target_months = [(now - relativedelta(months=i)).strftime('%Y%m') for i in range(5, -1, -1)]
-
+def fetch_target_records(target_list_tuples, target_months_tuple):
     tasks = []
-    # 중복된 (lawd_cd, month) 호출 방지
     seen_calls = set()
     for code, sido, city, gu in target_list_tuples:
-        for deal_ymd in target_months:
+        for deal_ymd in target_months_tuple:
             call_key = (code, deal_ymd)
             if call_key not in seen_calls:
                 seen_calls.add(call_key)
                 tasks.append((code, deal_ymd, sido, city, gu))
 
     all_records = []
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    with ThreadPoolExecutor(max_workers=6) as executor:
         futures = [executor.submit(fetch_single_month_task, *task) for task in tasks]
         for future in as_completed(futures):
             try:
@@ -198,8 +209,31 @@ def fetch_target_records(target_list_tuples):
     return pd.DataFrame(all_records)
 
 
-# ── 4. 사이드바: 내 자본금 맞춤 계산기 ──────────────────────
-st.sidebar.header("💰 내 자본금 맞춤 계산기")
+# ── 4. 사이드바 설정 및 예산 계산기 ────────────────────────
+st.sidebar.header("⚙️ 데이터 및 예산 설정")
+
+# [1] 캐시 강제 초기화 버튼 (데이터 안 뜰 때 즉시 해결)
+if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기"):
+    st.cache_data.clear()
+    st.rerun()
+
+# [2] 조회 기간 선택
+period_option = st.sidebar.selectbox(
+    "📅 조회 기간 선택",
+    ["최근 6개월 (실시간)", "최근 12개월 (1년)", "2024년 전체"],
+    index=0
+)
+
+now = datetime.now()
+if period_option == "최근 6개월 (실시간)":
+    target_months = [(now - relativedelta(months=i)).strftime('%Y%m') for i in range(5, -1, -1)]
+elif period_option == "최근 12개월 (1년)":
+    target_months = [(now - relativedelta(months=i)).strftime('%Y%m') for i in range(11, -1, -1)]
+else:
+    target_months = [f"2024{m:02d}" for m in range(1, 13)]
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("💰 내 자본금 맞춤 계산기")
 
 my_capital = st.sidebar.number_input(
     "내 보유 현금/자본금 (만원)",
@@ -243,7 +277,7 @@ filter_by_budget = st.sidebar.checkbox("🎯 내 예산 이하 단지만 필터�
 
 # ── 5. 메인 UI 및 계층형 지역 필터 ────────────────────────
 st.title("📊 전국 아파트 실거래가 및 내집마련 대시보드")
-st.caption("국토교통부 실거래가 오픈 API 실시간 연동 (동탄구 분리 조회 및 내 자본금 맞춤 단지 추천)")
+st.caption("국토교통부 실거래가 오픈 API 실시간 연동 (화성시 동탄구 분리 및 내집마련 추천)")
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -270,7 +304,7 @@ if selected_sido == "경기도":
         gu_dict = sido_data[selected_city]
         gu_keys = list(gu_dict.keys())
         with col3:
-            gu_options = [f"{selected_city} 전체"] + gu_keys if len(gu_keys) > 1 and f"{selected_city} 전체" not in gu_keys else gu_keys
+            gu_options = gu_keys
             selected_gu = st.selectbox("3️⃣ 구·권역", gu_options)
 
         if selected_gu == f"{selected_city} 전체":
@@ -294,11 +328,18 @@ else:
         target_codes_to_fetch.append((code, selected_sido, selected_sido, selected_gu_direct))
 
 scope_name = selected_city if selected_sido == "경기도" else selected_gu_direct
-with st.spinner(f"'{selected_sido} {scope_name}' 실거래 데이터를 조회 중입니다..."):
-    df = fetch_target_records(tuple(target_codes_to_fetch))
 
-# ── [동탄구 가상 분리 필터링 적용] ──
-if not df.empty and selected_city == "화성시":
+with st.spinner(f"'{selected_sido} {scope_name}' 실거래 데이터를 국토부 API에서 수집 중입니다..."):
+    df = fetch_target_records(tuple(target_codes_to_fetch), tuple(target_months))
+
+# 만약 빈 데이터가 조회된 경우 캐시 강제 무효화
+if df.empty:
+    st.cache_data.clear()
+    st.warning("국토교통부 API 서버 응답이 지연되어 데이터를 불러오지 못했습니다. 사이드바의 [🔄 캐시 초기화 및 다시 불러오기] 버튼을 눌러주세요.")
+    st.stop()
+
+# ── [동탄구 / 비동탄권 가상 분리 필터링] ──
+if selected_city == "화성시":
     if selected_gu == "동탄구 (동탄 1·2신도시)":
         df = df[df['dong'].isin(DONGTAN_DONGS)].copy()
     elif selected_gu == "비동탄권 (봉담·향남·남양 등)":
@@ -307,10 +348,6 @@ if not df.empty and selected_city == "화성시":
 with col4:
     dong_list = ['전체 보기'] + sorted(list(df['dong'].unique())) if not df.empty else ['전체 보기']
     selected_dong = st.selectbox("4️⃣ 읍·면·동", dong_list)
-
-if df.empty:
-    st.warning("선택하신 지역의 최근 6개월 거래 내역이 없거나 데이터를 불러올 수 없습니다.")
-    st.stop()
 
 view_df = df if selected_dong == '전체 보기' else df[df['dong'] == selected_dong]
 
@@ -324,7 +361,7 @@ m1, m2, m3, m4 = st.columns(4)
 m1.metric("💵 내 자본금 기준 최대 매수가", f"{max_affordable_price // 10000}억 {max_affordable_price % 10000:,}만원")
 m2.metric("💳 필요 대출금 (LTV 적용)", f"{max_loan_amount // 10000}억 {max_loan_amount % 10000:,}만원")
 match_pct = (len(affordable_df) / len(view_df) * 100) if len(view_df) > 0 else 0
-m3.metric("🎯 매수 가능한 거래 건수", f"{len(affordable_df):,}건", f"전체 중 {match_pct:.1f}%")
+m3.metric("🎯 매수 가능한 거래 건수", f"{len(affordable_df):,}건", f"전체 {len(view_df):,}건 중 {match_pct:.1f}%")
 m4.metric("🏦 월 예상 원리금 상환액", f"{monthly_payment // 10000:,}만원")
 
 st.divider()
