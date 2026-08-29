@@ -137,12 +137,12 @@ def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFr
     return cleaned_df
 
 
-# ── 2. 기본 설정, 세션 풀 및 방문자 트래커 ───────────────────
+# ── 2. 기본 설정, 세션 풀 및 방문자 집계 저장소 ──────────
 DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
 ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
 
-# 방문자 집계용 서버 공용 메모리
+# 방문자 집계용 서버 공용 캐시 저장소
 @st.cache_resource
 def get_visitor_storage():
     return {
@@ -356,7 +356,7 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
 
     return pd.DataFrame(all_records)
 
-# ── 5. 사이드바 설정 (필터 + 계산기 + 관리자 모드 일체형) ─────
+# ── 5. 사이드바 설정 (필터, 계산기, 관리자 모드) ─────────────
 st.sidebar.markdown("### ⚙️ 대시보드 설정")
 
 if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기", use_container_width=True):
@@ -492,25 +492,24 @@ else:
 
 st.sidebar.markdown("---")
 
-# [5] 관리자 전용 방문자 통계 모드 (사이드바 배치)
-with st.sidebar.expander("🔒 관리자 모드"):
-    admin_password = st.text_input("관리자 비밀번호", type="password", key="admin_auth_pwd")
-    ADMIN_SECRET_KEY = "7576"
+# [5] 관리자 모드 (사이드바에 즉시 렌더링)
+st.sidebar.markdown("### 🔒 관리자 메뉴")
+admin_password = st.sidebar.text_input("관리자 비밀번호", type="password", key="admin_auth_pwd")
+ADMIN_SECRET_KEY = "7576"
 
-    if admin_password == ADMIN_SECRET_KEY:
-        st.success("관리자 인증 성공")
-        today_visitors = visitor_storage["daily"].get(today_key, 0)
-        total_visitors = visitor_storage["total"]
+if admin_password == ADMIN_SECRET_KEY:
+    st.sidebar.success("관리자 인증 완료")
+    today_visitors = visitor_storage["daily"].get(today_key, 0)
+    total_visitors = visitor_storage["total"]
 
-        adm_col1, adm_col2 = st.columns(2)
-        adm_col1.metric("오늘 방문자", f"{today_visitors:,}명")
-        adm_col2.metric("누적 방문자", f"{total_visitors:,}명")
+    st.sidebar.metric("오늘 방문자", f"{today_visitors:,}명")
+    st.sidebar.metric("누적 방문자", f"{total_visitors:,}명")
 
-        if visitor_storage["logs"]:
-            today_logs = [log for log in visitor_storage["logs"] if log["date"] == today_key]
-            st.caption(f"최근 접속 기록: {today_logs[-1]['time'] if today_logs else '-'}")
-    elif admin_password:
-        st.error("비밀번호가 일치하지 않습니다.")
+    if visitor_storage["logs"]:
+        today_logs = [log for log in visitor_storage["logs"] if log["date"] == today_key]
+        st.sidebar.caption(f"최근 접속 기록: {today_logs[-1]['time'] if today_logs else '-'}")
+elif admin_password:
+    st.sidebar.error("비밀번호가 일치하지 않습니다.")
 
 
 # ── 6. 메인 UI 및 계층형 지역 필터 ────────────────────────
