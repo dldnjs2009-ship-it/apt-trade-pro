@@ -769,3 +769,29 @@ else:
                 )
             }
         )
+# ── 관리자 전용 방문자 통계 UI (사이드바 하단) ───────────────
+st.sidebar.markdown("---")
+
+with st.sidebar.expander("🔒 관리자 모드"):
+    admin_password = st.text_input("관리자 비밀번호", type="password", key="admin_auth_pwd")
+    
+    # 💡 본인만 알 수 있는 비밀번호로 변경하세요
+    ADMIN_SECRET_KEY = "7576"
+
+    if admin_password == ADMIN_SECRET_KEY:
+        st.success("관리자 인증 성공")
+        
+        today_visitors = visitor_storage["daily"].get(today_key, 0)
+        total_visitors = visitor_storage["total"]
+        
+        adm_col1, adm_col2 = st.columns(2)
+        adm_col1.metric("오늘 방문자", f"{today_visitors:,}명")
+        adm_col2.metric("누적 방문자", f"{total_visitors:,}명")
+        
+        # 최근 방문 시간 로그 5건 확인
+        if visitor_storage["logs"]:
+            today_logs = [log for log in visitor_storage["logs"] if log["date"] == today_key]
+            st.caption(f"최근 접속 기록: {today_logs[-1]['time'] if today_logs else '-'}")
+            
+    elif admin_password:
+        st.error("비밀번호가 일치하지 않습니다.")
