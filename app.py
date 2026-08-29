@@ -3,7 +3,9 @@ import pandas as pd
 import requests
 import xml.etree.ElementTree as ET
 import urllib.parse
+import html
 import time
+import plotly.graph_objects as go
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -15,6 +17,115 @@ st.set_page_config(
     layout="wide"
 )
 
+# ── 1-1. 디자인 시스템 (컬러 / 카드 / 타이포) ─────────────
+# 팔레트: 시퀀셜=블루 단일 색상(#2a78d6), 강조=오렌지(#eb6834) — 고정 순서로만 사용.
+# 참고: 호갱노노/아실류 부동산 정보 서비스의 "카드형 KPI + 랭킹 카드 + 인터랙티브 차트" 패턴을 참고해
+# Streamlit 기본 위젯 위에 커스텀 CSS/HTML을 얹는 방식으로 구현.
+CUSTOM_CSS = """
+<style>
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
+
+:root {
+    --brand-primary: #2a78d6;
+    --brand-primary-dark: #184f95;
+    --brand-accent: #eb6834;
+    --surface: #ffffff;
+    --page-bg: #f5f7fa;
+    --ink-primary: #0b0b0b;
+    --ink-secondary: #52514e;
+    --ink-muted: #898781;
+    --border-hairline: rgba(11,11,11,0.08);
+    --good: #0ca30c;
+}
+
+html, body, [class*="css"] {
+    font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.stApp { background-color: var(--page-bg); }
+.block-container { padding-top: 1.5rem; padding-bottom: 3rem; max-width: 1240px; }
+
+/* 상단 히어로 배너 */
+.hero-banner {
+    background: linear-gradient(135deg, #184f95 0%, #2a78d6 55%, #3987e5 100%);
+    border-radius: 20px; padding: 28px 32px; margin-bottom: 22px; color: #ffffff;
+    box-shadow: 0 12px 30px rgba(24,79,149,0.28);
+}
+.hero-banner h1 { margin: 0; font-size: 1.65rem; font-weight: 800; letter-spacing: -0.02em; }
+.hero-banner p { margin: 8px 0 0; opacity: .88; font-size: .92rem; }
+
+/* 필터 스텝 칩 */
+.step-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(42,120,214,0.10); color: var(--brand-primary-dark);
+    font-weight: 700; font-size: .76rem; padding: 3px 10px; border-radius: 999px;
+    margin-bottom: 6px;
+}
+
+/* KPI 카드 */
+.kpi-card {
+    background: var(--surface); border-radius: 16px; padding: 18px 20px;
+    border: 1px solid var(--border-hairline);
+    box-shadow: 0 1px 2px rgba(11,11,11,0.04), 0 8px 22px rgba(11,11,11,0.05);
+    height: 100%;
+}
+.kpi-label {
+    font-size: .8rem; color: var(--ink-secondary); font-weight: 700;
+    display: flex; align-items: center; gap: 6px;
+}
+.kpi-value { font-size: 1.55rem; font-weight: 800; color: var(--ink-primary); margin-top: 8px; font-variant-numeric: tabular-nums; }
+.kpi-value.accent { color: var(--brand-accent); }
+.kpi-value.primary { color: var(--brand-primary-dark); }
+.kpi-sub { font-size: .78rem; color: var(--good); margin-top: 5px; font-weight: 700; }
+.kpi-sub.muted { color: var(--ink-muted); font-weight: 500; }
+
+/* 섹션 타이틀 */
+.section-title {
+    display: flex; align-items: center; gap: 8px; font-size: 1.05rem; font-weight: 800;
+    color: var(--ink-primary); margin: 6px 0 14px; padding-left: 10px;
+    border-left: 4px solid var(--brand-primary);
+}
+
+/* 추천 단지 TOP3 하이라이트 카드 */
+.rank-card {
+    background: var(--surface); border-radius: 16px; padding: 18px;
+    border: 1px solid var(--border-hairline);
+    box-shadow: 0 8px 22px rgba(11,11,11,0.06);
+    position: relative; height: 100%;
+}
+.rank-badge { position: absolute; top: -14px; left: 16px; font-size: 1.6rem; filter: drop-shadow(0 3px 4px rgba(0,0,0,0.15)); }
+.rank-apt { font-weight: 800; font-size: 1.02rem; margin-top: 10px; color: var(--ink-primary); line-height: 1.3; }
+.rank-loc { font-size: .78rem; color: var(--ink-muted); margin-top: 4px; }
+.rank-price { font-size: 1.3rem; font-weight: 800; color: var(--brand-accent); margin-top: 12px; font-variant-numeric: tabular-nums; }
+.rank-meta { font-size: .76rem; color: var(--ink-secondary); margin-top: 4px; }
+
+/* 데이터프레임 카드화 */
+div[data-testid="stDataFrame"] {
+    border-radius: 14px; overflow: hidden; border: 1px solid var(--border-hairline);
+    font-variant-numeric: tabular-nums;
+}
+
+/* 사이드바 */
+section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px solid var(--border-hairline); }
+.budget-card {
+    background: linear-gradient(135deg, #eef4fd 0%, #f8fbfe 100%);
+    border-radius: 14px; padding: 14px 16px; border: 1px solid rgba(42,120,214,0.16);
+    margin-top: 8px;
+}
+.budget-row { display: flex; justify-content: space-between; align-items: baseline; font-size: .82rem; padding: 5px 0; color: var(--ink-secondary); }
+.budget-row b { color: var(--ink-primary); font-size: 1rem; font-variant-numeric: tabular-nums; }
+.sidebar-note { font-size: .78rem; color: var(--ink-muted); line-height: 1.5; padding: 8px 2px; }
+</style>
+"""
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+
+def format_price(x: int) -> str:
+    """만원 단위 정수를 'N억 N,NNN만' 형식 문자열로 변환."""
+    x = int(x)
+    return f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만"
+
+
 # ── 2. 기본 설정 및 행정구역 매핑 ───────────────────────
 DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
 ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
@@ -25,6 +136,9 @@ REGION_STRUCTURE = {
         "성남시": {"분당구": "41135", "수정구": "41131", "중원구": "41133"},
         "수원시": {"영통구": "41117", "장안구": "41111", "권선구": "41113", "팔달구": "41115"},
         "용인시": {"수지구": "41465", "기흥구": "41463", "처인구": "41461"},
+        # 2026-02-01부로 화성시가 만세구·효행구·병점구·동탄구 4개 일반구 체제로 개편되면서
+        # 기존 화성시 통합 코드(41590)로는 실거래가 API가 더 이상 데이터를 반환하지 않음.
+        # 신설된 구별 코드로 교체 (수원시/성남시 등과 동일한 다구 시 구조로 처리).
         "화성시": {
             "만세구": "41591",
             "효행구": "41593",
@@ -199,9 +313,9 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
     return pd.DataFrame(all_records)
 
 # ── 3. 사이드바 설정 및 예산 계산기 ────────────────────────
-st.sidebar.header("⚙️ 대시보드 설정")
+st.sidebar.markdown("### ⚙️ 대시보드 설정")
 
-if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기"):
+if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
@@ -220,11 +334,9 @@ else:
     target_months = [f"2024{m:02d}" for m in range(1, 13)]
 
 st.sidebar.markdown("---")
+calc_enabled = st.sidebar.toggle("🪙 내 자본금 맞춤 계산기 활성화", value=True)
 
-# ── [ON / OFF 모드 토글 스위치] ──
-use_budget_calc = st.sidebar.toggle("💰 내 자본금 맞춤 계산기 활성화", value=False)
-
-if use_budget_calc:
+if calc_enabled:
     my_capital = st.sidebar.number_input(
         "내 보유 현금/자본금 (만원)",
         min_value=1000,
@@ -256,41 +368,59 @@ if use_budget_calc:
     else:
         monthly_payment = 0
 
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("📋 내 예산 분석 결과")
-    st.sidebar.write(f"• **최대 매수 가능가:** **{max_affordable_price // 10000}억 {(max_affordable_price % 10000):,}만원**")
-    st.sidebar.write(f"• **필요 대출금액:** {max_loan_amount // 10000}억 {(max_loan_amount % 10000):,}만원")
-    st.sidebar.write(f"• **월 예상 원리금:** **{monthly_payment // 10000:,}만원** / 월")
+    st.sidebar.markdown(f"""
+    <div class="budget-card">
+      <div class="budget-row"><span>💵 최대 매수 가능가</span><b>{format_price(max_affordable_price)}원</b></div>
+      <div class="budget-row"><span>💳 필요 대출금액</span><b>{format_price(max_loan_amount)}원</b></div>
+      <div class="budget-row"><span>🏦 월 예상 원리금</span><b>{monthly_payment // 10000:,}만원 / 월</b></div>
+    </div>
+    """, unsafe_allow_html=True)
 
     filter_by_budget = st.sidebar.checkbox("🎯 내 예산 이하 단지만 필터링", value=True)
 else:
-    filter_by_budget = False
-    max_affordable_price = 0
+    my_capital = 0
+    max_affordable_price = None
     max_loan_amount = 0
     monthly_payment = 0
+    filter_by_budget = False
+    st.sidebar.markdown(
+        '<div class="sidebar-note">계산기를 켜면 보유 자본금 기준 최대 매수가·월 원리금을 계산하고, '
+        '예산 이하 단지만 걸러서 볼 수 있어요.</div>',
+        unsafe_allow_html=True
+    )
 
 # ── 4. 메인 UI 및 계층형 지역 필터 ────────────────────────
-st.title("📊 전국 아파트 실거래가 및 거래량 대시보드")
-st.caption("국토교통부 실거래가 오픈 API 실시간 연동 (시/구 전체 통합 집계 및 맞춤 추천)")
+st.markdown("""
+<div class="hero-banner">
+  <h1>🏠 전국 아파트 실거래가 및 내집마련 대시보드</h1>
+  <p>국토교통부 실거래가 오픈 API 실시간 연동 · 시/구 전체 통합 집계 및 맞춤 추천</p>
+</div>
+""", unsafe_allow_html=True)
 
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
+    st.markdown('<div class="step-chip">1️⃣ 시·도</div>', unsafe_allow_html=True)
     sido_list = list(REGION_STRUCTURE.keys())
-    selected_sido = st.selectbox("1️⃣ 시·도", sido_list, index=sido_list.index("경기도") if "경기도" in sido_list else 0)
+    selected_sido = st.selectbox(
+        "시·도", sido_list, index=sido_list.index("경기도") if "경기도" in sido_list else 0,
+        label_visibility="collapsed"
+    )
 
 sido_data = REGION_STRUCTURE[selected_sido]
 target_codes_to_fetch = []
 
 if selected_sido == "경기도":
     with col2:
+        st.markdown('<div class="step-chip">2️⃣ 시·군</div>', unsafe_allow_html=True)
         city_options = ["경기도 전체"] + list(sido_data.keys())
-        default_city_idx = city_options.index("화성시") if "화성시" in city_options else 1
-        selected_city = st.selectbox("2️⃣ 시·군", city_options, index=default_city_idx)
+        default_city_idx = city_options.index("성남시") if "성남시" in city_options else 1
+        selected_city = st.selectbox("시·군", city_options, index=default_city_idx, label_visibility="collapsed")
 
     if selected_city == "경기도 전체":
         with col3:
-            selected_gu = st.selectbox("3️⃣ 구·권역", ["경기도 전체"])
+            st.markdown('<div class="step-chip">3️⃣ 구·권역</div>', unsafe_allow_html=True)
+            selected_gu = st.selectbox("구·권역", ["경기도 전체"], label_visibility="collapsed")
         for c_name, gu_dict in sido_data.items():
             for g_name, code in gu_dict.items():
                 target_codes_to_fetch.append((code, selected_sido, c_name, g_name))
@@ -304,7 +434,8 @@ if selected_sido == "경기도":
             gu_options = gu_keys
 
         with col3:
-            selected_gu = st.selectbox("3️⃣ 구·권역", gu_options)
+            st.markdown('<div class="step-chip">3️⃣ 구·권역</div>', unsafe_allow_html=True)
+            selected_gu = st.selectbox("구·권역", gu_options, label_visibility="collapsed")
 
         if selected_gu == f"{selected_city} 전체":
             for g_name, code in gu_dict.items():
@@ -314,10 +445,12 @@ if selected_sido == "경기도":
             target_codes_to_fetch.append((code, selected_sido, selected_city, selected_gu))
 else:
     with col2:
+        st.markdown('<div class="step-chip">2️⃣ 구·군</div>', unsafe_allow_html=True)
         gu_options = [f"{selected_sido} 전체"] + list(sido_data.keys())
-        selected_gu_direct = st.selectbox("2️⃣ 구·군", gu_options)
+        selected_gu_direct = st.selectbox("구·군", gu_options, label_visibility="collapsed")
     with col3:
-        st.selectbox("3️⃣ 구·권역", ["-"], disabled=True)
+        st.markdown('<div class="step-chip">3️⃣ 구·권역</div>', unsafe_allow_html=True)
+        st.selectbox("구·권역", ["-"], disabled=True, label_visibility="collapsed")
 
     if selected_gu_direct == f"{selected_sido} 전체":
         for g_name, code in sido_data.items():
@@ -337,38 +470,78 @@ if df.empty:
     st.stop()
 
 with col4:
+    st.markdown('<div class="step-chip">4️⃣ 읍·면·동</div>', unsafe_allow_html=True)
     dong_list = ['전체 보기'] + sorted(list(df['dong'].unique())) if not df.empty else ['전체 보기']
-    selected_dong = st.selectbox("4️⃣ 읍·면·동", dong_list)
+    selected_dong = st.selectbox("읍·면·동", dong_list, label_visibility="collapsed")
 
 view_df = df if selected_dong == '전체 보기' else df[df['dong'] == selected_dong]
 
-# 예산 맞춤 모드 적용 여부
-if use_budget_calc and filter_by_budget:
-    display_df = view_df[view_df['price'] <= max_affordable_price]
+if filter_by_budget and max_affordable_price is not None:
+    affordable_df = view_df[view_df['price'] <= max_affordable_price]
 else:
-    display_df = view_df
+    affordable_df = view_df
 
-# ── 5. 요약 통계 메트릭 (모드별 동적 전환) ─────────────────
-if use_budget_calc:
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("💵 최대 매수가", f"{max_affordable_price // 10000}억 {max_affordable_price % 10000:,}만")
-    m2.metric("💳 필요 대출금", f"{max_loan_amount // 10000}억 {max_loan_amount % 10000:,}만")
-    match_pct = (len(display_df) / len(view_df) * 100) if len(view_df) > 0 else 0
-    m3.metric("🎯 매수 가능 거래", f"{len(display_df):,}건", f"전체 {len(view_df):,}건 중 {match_pct:.1f}%")
-    m4.metric("🏦 월 예상 원리금", f"{monthly_payment // 10000:,}만원")
+# ── 5. 요약 통계 및 시각화 ─────────────────────────────────
+match_pct = (len(affordable_df) / len(view_df) * 100) if len(view_df) > 0 else 0
+
+k1, k2, k3, k4 = st.columns(4)
+
+if calc_enabled:
+    with k1:
+        st.markdown(f"""<div class="kpi-card">
+            <div class="kpi-label">💵 최대 매수가</div>
+            <div class="kpi-value accent">{format_price(max_affordable_price)}</div>
+            <div class="kpi-sub muted">자본금 {my_capital:,}만 · LTV {ltv_rate}%</div>
+        </div>""", unsafe_allow_html=True)
+    with k2:
+        st.markdown(f"""<div class="kpi-card">
+            <div class="kpi-label">💳 필요 대출금</div>
+            <div class="kpi-value">{format_price(max_loan_amount)}</div>
+            <div class="kpi-sub muted">금리 {loan_interest:.1f}% · {loan_term_years}년 만기</div>
+        </div>""", unsafe_allow_html=True)
+    with k3:
+        st.markdown(f"""<div class="kpi-card">
+            <div class="kpi-label">🎯 매수 가능 거래</div>
+            <div class="kpi-value">{len(affordable_df):,}건</div>
+            <div class="kpi-sub">↑ 전체 {len(view_df):,}건 중 {match_pct:.1f}%</div>
+        </div>""", unsafe_allow_html=True)
+    with k4:
+        st.markdown(f"""<div class="kpi-card">
+            <div class="kpi-label">🏦 월 예상 원리금</div>
+            <div class="kpi-value primary">{monthly_payment // 10000:,}만원</div>
+            <div class="kpi-sub muted">원리금 균등분할 기준</div>
+        </div>""", unsafe_allow_html=True)
 else:
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("📦 선택 구역 총 거래량", f"{len(display_df):,}건")
-    avg_price = int(display_df['price'].mean()) if not display_df.empty else 0
-    max_price = int(display_df['price'].max()) if not display_df.empty else 0
-    dong_count = len(display_df['dong'].unique()) if not display_df.empty else 0
-    m2.metric("💰 평균 실거래가", f"{avg_price // 10000}억 {avg_price % 10000:,}만" if avg_price >= 10000 else f"{avg_price:,}만")
-    m3.metric("🔝 최고 실거래가", f"{max_price // 10000}억 {max_price % 10000:,}만" if max_price >= 10000 else f"{max_price:,}만")
-    m4.metric("🏢 거래 법정동 수", f"{dong_count:,}개 구역")
+    avg_price = int(view_df['price'].mean()) if len(view_df) > 0 else 0
+    max_price = int(view_df['price'].max()) if len(view_df) > 0 else 0
+    apt_count = view_df['apt'].nunique() if len(view_df) > 0 else 0
+    with k1:
+        st.markdown(f"""<div class="kpi-card">
+            <div class="kpi-label">📊 전체 거래건수</div>
+            <div class="kpi-value">{len(view_df):,}건</div>
+            <div class="kpi-sub muted">선택 지역·기간 기준</div>
+        </div>""", unsafe_allow_html=True)
+    with k2:
+        st.markdown(f"""<div class="kpi-card">
+            <div class="kpi-label">💰 평균 실거래가</div>
+            <div class="kpi-value accent">{format_price(avg_price)}</div>
+            <div class="kpi-sub muted">전체 거래 평균</div>
+        </div>""", unsafe_allow_html=True)
+    with k3:
+        st.markdown(f"""<div class="kpi-card">
+            <div class="kpi-label">🏆 최고 실거래가</div>
+            <div class="kpi-value">{format_price(max_price)}</div>
+            <div class="kpi-sub muted">최근 6개월~ 기준</div>
+        </div>""", unsafe_allow_html=True)
+    with k4:
+        st.markdown(f"""<div class="kpi-card">
+            <div class="kpi-label">🏘️ 거래 단지 수</div>
+            <div class="kpi-value primary">{apt_count:,}개</div>
+            <div class="kpi-sub muted">사이드바에서 계산기를 켜보세요</div>
+        </div>""", unsafe_allow_html=True)
 
-st.divider()
+st.write("")
 
-# ── 6. 월별 거래량 추이 및 동별 순위표 ───────────────────
 c1, c2 = st.columns([3, 2])
 
 display_title = f"{selected_sido} {scope_name}"
@@ -378,44 +551,104 @@ if selected_dong != '전체 보기':
     display_title += f" {selected_dong}"
 
 with c1:
-    st.subheader(f"📈 {display_title} 월별 거래량 추이")
-    monthly_series = display_df['month'].value_counts().sort_index()
-    st.bar_chart(monthly_series)
+    st.markdown(f'<div class="section-title">📈 {display_title} 월별 거래량 추이</div>', unsafe_allow_html=True)
+    monthly_series = affordable_df['month'].value_counts().sort_index()
+    fig = go.Figure(go.Bar(
+        x=monthly_series.index,
+        y=monthly_series.values,
+        marker_color="#2a78d6",
+        hovertemplate="%{x}<br><b>%{y}건</b><extra></extra>",
+    ))
+    fig.update_layout(
+        plot_bgcolor="#fcfcfb",
+        paper_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=10, r=10, t=10, b=10),
+        height=320,
+        font=dict(family="Pretendard, sans-serif", color="#52514e", size=13),
+        xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
+        yaxis=dict(gridcolor="#e1e0d9", zeroline=False),
+        hoverlabel=dict(bgcolor="#184f95", font_color="#ffffff", font_family="Pretendard, sans-serif"),
+    )
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 with c2:
-    st.subheader(f"🥇 {selected_gu if selected_sido == '경기도' else scope_name} 동별 거래량 순위")
-    rank_df = display_df.groupby(['city', 'gu', 'dong']).size().reset_index(name='거래건수')
+    st.markdown(
+        f'<div class="section-title">🥇 {selected_gu if selected_sido == "경기도" else scope_name} 동별 거래량 순위</div>',
+        unsafe_allow_html=True
+    )
+    rank_df = affordable_df.groupby(['city', 'gu', 'dong']).size().reset_index(name='거래건수')
     rank_df = rank_df.sort_values(by='거래건수', ascending=False)
     rank_df.columns = ['시·군', '구', '동·읍·면명', '거래건수']
     rank_df.index = range(1, len(rank_df) + 1)
-    st.dataframe(rank_df, use_container_width=True, height=290)
+    max_count = int(rank_df['거래건수'].max()) if len(rank_df) > 0 else 1
+    st.dataframe(
+        rank_df,
+        use_container_width=True,
+        height=290,
+        column_config={
+            "거래건수": st.column_config.ProgressColumn(
+                "거래건수", format="%d건", min_value=0, max_value=max_count
+            )
+        }
+    )
 
-st.divider()
+st.write("")
 
-# ── 7. 주요 아파트 단지 순위표 (TOP 15) ───────────────────
-if use_budget_calc and filter_by_budget:
-    st.subheader(f"🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15")
+if calc_enabled:
+    st.markdown(
+        f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
+        unsafe_allow_html=True
+    )
 else:
-    st.subheader(f"🏆 {display_title} 주요 아파트 단지 거래 순위 (TOP 15)")
+    st.markdown('<div class="section-title">🏆 실거래 인기 단지 TOP 15 (전체 거래 기준)</div>', unsafe_allow_html=True)
 
-if display_df.empty:
-    st.info("조건에 일치하는 실거래 아파트 내역이 없습니다.")
+if affordable_df.empty:
+    st.info("현재 설정된 예산으로 매수 가능한 실거래 아파트가 없습니다. 자본금이나 LTV 비율을 올려보세요.")
 else:
-    apt_rank = display_df.groupby(['city', 'gu', 'dong', 'apt']).agg(
+    apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt']).agg(
         거래건수=('price', 'count'),
         평균실거래가=('price', 'mean'),
         최근최고가=('price', 'max'),
         전용면적_평균=('area', 'mean')
     ).reset_index()
 
-    apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(15)
+    apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(15).reset_index(drop=True)
 
-    apt_rank['평균실거래가'] = apt_rank['평균실거래가'].astype(int).apply(lambda x: f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만")
-    apt_rank['최근최고가'] = apt_rank['최근최고가'].astype(int).apply(lambda x: f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만")
+    apt_rank['평균실거래가_fmt'] = apt_rank['평균실거래가'].astype(int).apply(format_price)
+    apt_rank['최근최고가_fmt'] = apt_rank['최근최고가'].astype(int).apply(format_price)
     apt_rank['전용면적_평형'] = apt_rank['전용면적_평균'].apply(lambda x: f"{x:.1f}㎡ ({x/3.30578:.0f}평)")
 
-    display_table = apt_rank[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '평균실거래가', '최근최고가']]
-    display_table.columns = ['시·군', '구', '법정동(읍·면)', '단지명', '평균 면적', '거래건수', '평균 실거래가', '최근 최고가']
-    display_table.index = range(1, len(display_table) + 1)
+    # 상위 3개 단지는 하이라이트 카드로
+    medals = ['🥇', '🥈', '🥉']
+    top3 = apt_rank.head(3)
+    if len(top3) > 0:
+        top_cols = st.columns(len(top3))
+        for i, (_, row) in enumerate(top3.iterrows()):
+            apt_name = html.escape(str(row['apt']))
+            loc_txt = html.escape(f"{row['city']} {row['gu']} {row['dong']} · {row['전용면적_평형']}")
+            with top_cols[i]:
+                st.markdown(f"""<div class="rank-card">
+                    <div class="rank-badge">{medals[i]}</div>
+                    <div class="rank-apt">{apt_name}</div>
+                    <div class="rank-loc">{loc_txt}</div>
+                    <div class="rank-price">{row['평균실거래가_fmt']}원</div>
+                    <div class="rank-meta">거래 {row['거래건수']}건 · 최고가 {row['최근최고가_fmt']}원</div>
+                </div>""", unsafe_allow_html=True)
+        st.write("")
 
-    st.dataframe(display_table, use_container_width=True)
+    # 4위 이하는 표로
+    rest = apt_rank.iloc[3:].copy()
+    if not rest.empty:
+        rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '평균실거래가_fmt', '최근최고가_fmt']].copy()
+        rest_display.columns = ['시·군', '구', '법정동(읍·면)', '단지명', '평균 면적', '거래건수', '평균 실거래가', '최근 최고가']
+        rest_display.index = range(4, 4 + len(rest_display))
+        max_txn = int(apt_rank['거래건수'].max())
+        st.dataframe(
+            rest_display,
+            use_container_width=True,
+            column_config={
+                "거래건수": st.column_config.ProgressColumn(
+                    "거래건수", format="%d건", min_value=0, max_value=max_txn
+                )
+            }
+        )
