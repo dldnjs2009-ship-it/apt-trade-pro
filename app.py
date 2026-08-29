@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import xml.etree.ElementTree as ET
 import urllib.parse
 import html
@@ -17,10 +19,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── 1-1. 디자인 시스템 (컬러 / 카드 / 타이포) ─────────────
-# 팔레트: 시퀀셜=블루 단일 색상(#2a78d6), 강조=오렌지(#eb6834) — 고정 순서로만 사용.
-# 참고: 호갱노노/아실류 부동산 정보 서비스의 "카드형 KPI + 랭킹 카드 + 인터랙티브 차트" 패턴을 참고해
-# Streamlit 기본 위젯 위에 커스텀 CSS/HTML을 얹는 방식으로 구현.
+# ── 1-1. 디자인 시스템 (CSS) ─────────────────────────────
 CUSTOM_CSS = """
 <style>
 @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
@@ -99,7 +98,7 @@ html, body, [class*="css"] {
 .rank-price { font-size: 1.3rem; font-weight: 800; color: var(--brand-accent); margin-top: 12px; font-variant-numeric: tabular-nums; }
 .rank-meta { font-size: .76rem; color: var(--ink-secondary); margin-top: 4px; }
 
-/* 데이터프레임 카드화 */
+/* 데이터프레임 스타일 */
 div[data-testid="stDataFrame"] {
     border-radius: 14px; overflow: hidden; border: 1px solid var(--border-hairline);
     font-variant-numeric: tabular-nums;
@@ -126,19 +125,36 @@ def format_price(x: int) -> str:
     return f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만"
 
 
-# ── 2. 기본 설정 및 행정구역 매핑 ───────────────────────
+# ── 2. 기본 설정 및 균형화된 HTTP 세션 풀 ─────────────────
 DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
 ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+
+# 안정성 중심 HTTP 세션: 재시도 3회, 지수 백오프 적용
+@st.cache_resource
+def get_http_session():
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=0.3,
+        status_forcelist=[429, 500, 502, 503, 504]
+    )
+    adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=retries)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/xml'
+    })
+    return session
+
+HTTP_SESSION = get_http_session()
 
 REGION_STRUCTURE = {
     "경기도": {
         "성남시": {"분당구": "41135", "수정구": "41131", "중원구": "41133"},
         "수원시": {"영통구": "41117", "장안구": "41111", "권선구": "41113", "팔달구": "41115"},
         "용인시": {"수지구": "41465", "기흥구": "41463", "처인구": "41461"},
-        # 2026-02-01부로 화성시가 만세구·효행구·병점구·동탄구 4개 일반구 체제로 개편되면서
-        # 기존 화성시 통합 코드(41590)로는 실거래가 API가 더 이상 데이터를 반환하지 않음.
-        # 신설된 구별 코드로 교체 (수원시/성남시 등과 동일한 다구 시 구조로 처리).
         "화성시": {
             "만세구": "41591",
             "효행구": "41593",
@@ -206,11 +222,8 @@ REGION_STRUCTURE = {
     }
 }
 
+# ── 3. 단일 월 고속 안정 수집 태스크 (타임아웃 12초 균형) ──
 def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Accept': 'application/xml'
-    }
     task_records = []
     page = 1
 
@@ -219,23 +232,22 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
             'serviceKey': DECODING_KEY,
             'LAWD_CD': lawd_cd,
             'DEAL_YMD': deal_ymd,
-            'numOfRows': '200',
+            'numOfRows': '1000',
             'pageNo': str(page)
         }
 
         res = None
-        for attempt in range(2):
-            try:
-                res = requests.get(BASE_URL, params=params, headers=headers, timeout=12)
-                if res.status_code == 200 and '<item>' in res.text:
-                    break
-            except Exception:
-                time.sleep(0.2)
+        # 1차 호출 (안정적 타임아웃 12초 설정)
+        try:
+            res = HTTP_SESSION.get(BASE_URL, params=params, timeout=12)
+        except Exception:
+            pass
 
+        # 2차 호출 (실패 시 URL 인코딩 직접 결합)
         if res is None or res.status_code != 200 or '<item>' not in res.text:
-            fallback_url = f"{BASE_URL}?serviceKey={ENCODING_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=200&pageNo={page}"
+            fallback_url = f"{BASE_URL}?serviceKey={ENCODING_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=1000&pageNo={page}"
             try:
-                res = requests.get(fallback_url, headers=headers, timeout=12)
+                res = HTTP_SESSION.get(fallback_url, timeout=12)
             except Exception:
                 break
 
@@ -282,12 +294,13 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
                 'month': f"{r.get('dealYear', '')}-{str(r.get('dealMonth', '')).zfill(2)}"
             })
 
-        if len(items) < 200 or len(task_records) >= total:
+        if len(items) < 1000 or len(task_records) >= total:
             break
         page += 1
 
     return task_records
 
+# ── 4. 안정적인 10개 스레드 병렬 분산 수집 & 24시간 캐싱 ──
 @st.cache_data(ttl=86400)
 def fetch_target_records(target_list_tuples, target_months_tuple):
     tasks = []
@@ -300,7 +313,8 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
                 tasks.append((code, deal_ymd, sido, city, gu))
 
     all_records = []
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    # WAF 차단 방지 및 Streamlit 메모리 안정성을 위해 스레드 수를 10개로 최적화
+    with ThreadPoolExecutor(max_workers=10) as executor:
         futures = [executor.submit(fetch_single_month_task, *task) for task in tasks]
         for future in as_completed(futures):
             try:
@@ -312,7 +326,7 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
 
     return pd.DataFrame(all_records)
 
-# ── 3. 사이드바 설정 및 예산 계산기 ────────────────────────
+# ── 5. 사이드바 설정 및 예산 계산기 ────────────────────────
 st.sidebar.markdown("### ⚙️ 대시보드 설정")
 
 if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기", use_container_width=True):
@@ -389,7 +403,7 @@ else:
         unsafe_allow_html=True
     )
 
-# ── 4. 메인 UI 및 계층형 지역 필터 ────────────────────────
+# ── 6. 메인 UI 및 계층형 지역 필터 ────────────────────────
 st.markdown("""
 <div class="hero-banner">
   <h1>🏠 전국 아파트 실거래가 및 내집마련 대시보드</h1>
@@ -474,14 +488,17 @@ with col4:
     dong_list = ['전체 보기'] + sorted(list(df['dong'].unique())) if not df.empty else ['전체 보기']
     selected_dong = st.selectbox("읍·면·동", dong_list, label_visibility="collapsed")
 
+# 읍·면·동 필터용 view_df 분리 (차트, KPI, 추천단지용)
 view_df = df if selected_dong == '전체 보기' else df[df['dong'] == selected_dong]
 
 if filter_by_budget and max_affordable_price is not None:
     affordable_df = view_df[view_df['price'] <= max_affordable_price]
+    dong_rank_source = df[df['price'] <= max_affordable_price]
 else:
     affordable_df = view_df
+    dong_rank_source = df
 
-# ── 5. 요약 통계 및 시각화 ─────────────────────────────────
+# ── 7. 요약 통계 및 시각화 ─────────────────────────────────
 match_pct = (len(affordable_df) / len(view_df) * 100) if len(view_df) > 0 else 0
 
 k1, k2, k3, k4 = st.columns(4)
@@ -576,7 +593,8 @@ with c2:
         f'<div class="section-title">🥇 {selected_gu if selected_sido == "경기도" else scope_name} 동별 거래량 순위</div>',
         unsafe_allow_html=True
     )
-    rank_df = affordable_df.groupby(['city', 'gu', 'dong']).size().reset_index(name='거래건수')
+    # dong_rank_source를 사용하여 특정 동을 선택해도 시·구 전체 동 순위 유지
+    rank_df = dong_rank_source.groupby(['city', 'gu', 'dong']).size().reset_index(name='거래건수')
     rank_df = rank_df.sort_values(by='거래건수', ascending=False)
     rank_df.columns = ['시·군', '구', '동·읍·면명', '거래건수']
     rank_df.index = range(1, len(rank_df) + 1)
@@ -600,7 +618,7 @@ if calc_enabled:
         unsafe_allow_html=True
     )
 else:
-    st.markdown('<div class="section-title">🏆 실거래 인기 단지 TOP 15 (전체 거래 기준)</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">🏆 {display_title} 실거래 인기 단지 TOP 15</div>', unsafe_allow_html=True)
 
 if affordable_df.empty:
     st.info("현재 설정된 예산으로 매수 가능한 실거래 아파트가 없습니다. 자본금이나 LTV 비율을 올려보세요.")
@@ -618,7 +636,6 @@ else:
     apt_rank['최근최고가_fmt'] = apt_rank['최근최고가'].astype(int).apply(format_price)
     apt_rank['전용면적_평형'] = apt_rank['전용면적_평균'].apply(lambda x: f"{x:.1f}㎡ ({x/3.30578:.0f}평)")
 
-    # 상위 3개 단지는 하이라이트 카드로
     medals = ['🥇', '🥈', '🥉']
     top3 = apt_rank.head(3)
     if len(top3) > 0:
@@ -636,7 +653,6 @@ else:
                 </div>""", unsafe_allow_html=True)
         st.write("")
 
-    # 4위 이하는 표로
     rest = apt_rank.iloc[3:].copy()
     if not rest.empty:
         rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '평균실거래가_fmt', '최근최고가_fmt']].copy()
