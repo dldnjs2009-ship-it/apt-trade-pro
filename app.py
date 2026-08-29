@@ -378,8 +378,8 @@ quick_pyeong_options = ["~10평", "10평대", "20평대", "30평대", "40평대"
 selected_quick_pyeong = st.sidebar.multiselect(
     "⚡ 평형대 빠른 선택 (다중 선택 가능)",
     quick_pyeong_options,
-    default=["20평대", "30평대", "40평대", "50평대", "60평대", "70평~"],
-    help="네이버 부동산처럼 원하는 평형대 칩을 클릭하여 다중 선택할 수 있습니다."
+    default=[],
+    help="원하는 평형대 칩을 클릭하여 다중 선택할 수 있습니다."
 )
 
 # 평형대별 최소/최대 평수 매핑 딕셔너리
