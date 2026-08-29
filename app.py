@@ -22,7 +22,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── 1-1. 디자인 시스템 (CSS) ─────────────────────────────
+# ── 1-1. 디자인 시스템 (PC 및 모바일 반응형 CSS) ───────────
 CUSTOM_CSS = """
 <style>
 @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
@@ -45,65 +45,65 @@ html, body, [class*="css"] {
 }
 
 .stApp { background-color: var(--page-bg); }
-.block-container { padding-top: 1.5rem; padding-bottom: 3rem; max-width: 1240px; }
+.block-container { padding-top: 1.2rem; padding-bottom: 2.5rem; max-width: 1240px; }
 
 /* 상단 히어로 배너 */
 .hero-banner {
     background: linear-gradient(135deg, #184f95 0%, #2a78d6 55%, #3987e5 100%);
-    border-radius: 20px; padding: 28px 32px; margin-bottom: 22px; color: #ffffff;
-    box-shadow: 0 12px 30px rgba(24,79,149,0.28);
+    border-radius: 18px; padding: 22px 26px; margin-bottom: 16px; color: #ffffff;
+    box-shadow: 0 10px 24px rgba(24,79,149,0.22);
 }
-.hero-banner h1 { margin: 0; font-size: 1.65rem; font-weight: 800; letter-spacing: -0.02em; }
-.hero-banner p { margin: 8px 0 0; opacity: .88; font-size: .92rem; }
+.hero-banner h1 { margin: 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+.hero-banner p { margin: 6px 0 0; opacity: .88; font-size: .88rem; }
 
 /* 필터 스텝 칩 */
 .step-chip {
-    display: inline-flex; align-items: center; gap: 6px;
+    display: inline-flex; align-items: center; gap: 5px;
     background: rgba(42,120,214,0.10); color: var(--brand-primary-dark);
-    font-weight: 700; font-size: .76rem; padding: 3px 10px; border-radius: 999px;
-    margin-bottom: 6px;
+    font-weight: 700; font-size: .75rem; padding: 2px 8px; border-radius: 999px;
+    margin-bottom: 4px;
 }
 
 /* KPI 카드 */
 .kpi-card {
-    background: var(--surface); border-radius: 16px; padding: 18px 20px;
+    background: var(--surface); border-radius: 14px; padding: 14px 16px;
     border: 1px solid var(--border-hairline);
-    box-shadow: 0 1px 2px rgba(11,11,11,0.04), 0 8px 22px rgba(11,11,11,0.05);
+    box-shadow: 0 1px 2px rgba(11,11,11,0.03), 0 6px 18px rgba(11,11,11,0.04);
     height: 100%;
 }
 .kpi-label {
-    font-size: .8rem; color: var(--ink-secondary); font-weight: 700;
-    display: flex; align-items: center; gap: 6px;
+    font-size: .78rem; color: var(--ink-secondary); font-weight: 700;
+    display: flex; align-items: center; gap: 5px;
 }
-.kpi-value { font-size: 1.55rem; font-weight: 800; color: var(--ink-primary); margin-top: 8px; font-variant-numeric: tabular-nums; }
+.kpi-value { font-size: 1.45rem; font-weight: 800; color: var(--ink-primary); margin-top: 6px; font-variant-numeric: tabular-nums; }
 .kpi-value.accent { color: var(--brand-accent); }
 .kpi-value.primary { color: var(--brand-primary-dark); }
-.kpi-sub { font-size: .78rem; color: var(--good); margin-top: 5px; font-weight: 700; }
+.kpi-sub { font-size: .74rem; color: var(--good); margin-top: 4px; font-weight: 700; }
 .kpi-sub.muted { color: var(--ink-muted); font-weight: 500; }
 
 /* 섹션 타이틀 */
 .section-title {
-    display: flex; align-items: center; gap: 8px; font-size: 1.05rem; font-weight: 800;
-    color: var(--ink-primary); margin: 6px 0 14px; padding-left: 10px;
+    display: flex; align-items: center; gap: 8px; font-size: 1.02rem; font-weight: 800;
+    color: var(--ink-primary); margin: 6px 0 12px; padding-left: 10px;
     border-left: 4px solid var(--brand-primary);
 }
 
 /* 추천 단지 TOP3 하이라이트 카드 */
 .rank-card {
-    background: var(--surface); border-radius: 16px; padding: 18px;
+    background: var(--surface); border-radius: 14px; padding: 16px;
     border: 1px solid var(--border-hairline);
-    box-shadow: 0 8px 22px rgba(11,11,11,0.06);
+    box-shadow: 0 6px 18px rgba(11,11,11,0.05);
     position: relative; height: 100%;
 }
-.rank-badge { position: absolute; top: -14px; left: 16px; font-size: 1.6rem; filter: drop-shadow(0 3px 4px rgba(0,0,0,0.15)); }
-.rank-apt { font-weight: 800; font-size: 1.02rem; margin-top: 10px; color: var(--ink-primary); line-height: 1.3; }
-.rank-loc { font-size: .78rem; color: var(--ink-muted); margin-top: 4px; }
-.rank-price { font-size: 1.3rem; font-weight: 800; color: var(--brand-accent); margin-top: 12px; font-variant-numeric: tabular-nums; }
-.rank-meta { font-size: .76rem; color: var(--ink-secondary); margin-top: 4px; }
+.rank-badge { position: absolute; top: -12px; left: 14px; font-size: 1.5rem; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.12)); }
+.rank-apt { font-weight: 800; font-size: 0.98rem; margin-top: 8px; color: var(--ink-primary); line-height: 1.3; }
+.rank-loc { font-size: .75rem; color: var(--ink-muted); margin-top: 4px; }
+.rank-price { font-size: 1.25rem; font-weight: 800; color: var(--brand-accent); margin-top: 10px; font-variant-numeric: tabular-nums; }
+.rank-meta { font-size: .74rem; color: var(--ink-secondary); margin-top: 4px; }
 
 /* 데이터프레임 스타일 */
 div[data-testid="stDataFrame"] {
-    border-radius: 14px; overflow: hidden; border: 1px solid var(--border-hairline);
+    border-radius: 12px; overflow: hidden; border: 1px solid var(--border-hairline);
     font-variant-numeric: tabular-nums;
 }
 
@@ -111,12 +111,63 @@ div[data-testid="stDataFrame"] {
 section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px solid var(--border-hairline); }
 .budget-card {
     background: linear-gradient(135deg, #eef4fd 0%, #f8fbfe 100%);
-    border-radius: 14px; padding: 14px 16px; border: 1px solid rgba(42,120,214,0.16);
-    margin-top: 8px;
+    border-radius: 12px; padding: 12px 14px; border: 1px solid rgba(42,120,214,0.16);
+    margin-top: 6px;
 }
-.budget-row { display: flex; justify-content: space-between; align-items: baseline; font-size: .82rem; padding: 5px 0; color: var(--ink-secondary); }
-.budget-row b { color: var(--ink-primary); font-size: 1rem; font-variant-numeric: tabular-nums; }
-.sidebar-note { font-size: .78rem; color: var(--ink-muted); line-height: 1.5; padding: 8px 2px; }
+.budget-row { display: flex; justify-content: space-between; align-items: baseline; font-size: .8rem; padding: 4px 0; color: var(--ink-secondary); }
+.budget-row b { color: var(--ink-primary); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.sidebar-note { font-size: .76rem; color: var(--ink-muted); line-height: 1.4; padding: 6px 2px; }
+
+/* 📱 모바일 전용 반응형 압축 스타일 (스크롤 대폭 축소) */
+@media (max-width: 768px) {
+    .block-container {
+        padding-top: 0.8rem !important;
+        padding-left: 0.6rem !important;
+        padding-right: 0.6rem !important;
+        padding-bottom: 2rem !important;
+    }
+    .hero-banner {
+        padding: 14px 16px !important;
+        border-radius: 12px !important;
+        margin-bottom: 10px !important;
+    }
+    .hero-banner h1 { font-size: 1.15rem !important; }
+    .hero-banner p { font-size: 0.76rem !important; margin-top: 3px !important; }
+
+    /* 4단 필터 & 4개 KPI 카드를 모바일에서 2x2 그리드로 강제 압축 */
+    div[data-testid="stHorizontalBlock"]:has(.step-chip),
+    div[data-testid="stHorizontalBlock"]:has(.kpi-card) {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(.step-chip) > div[data-testid="column"],
+    div[data-testid="stHorizontalBlock"]:has(.kpi-card) > div[data-testid="column"] {
+        width: calc(50% - 3px) !important;
+        min-width: calc(50% - 3px) !important;
+        flex: 1 1 calc(50% - 3px) !important;
+        margin-bottom: 2px !important;
+    }
+
+    .kpi-card {
+        padding: 10px 12px !important;
+        border-radius: 10px !important;
+    }
+    .kpi-label { font-size: 0.72rem !important; }
+    .kpi-value { font-size: 1.15rem !important; margin-top: 3px !important; }
+    .kpi-sub { font-size: 0.68rem !important; margin-top: 2px !important; }
+    .step-chip { font-size: 0.68rem !important; padding: 2px 6px !important; margin-bottom: 2px !important; }
+
+    /* 추천 단지 TOP3 모바일 카드 여백 최적화 */
+    .rank-card {
+        padding: 12px 14px !important;
+        margin-top: 10px !important;
+    }
+    .rank-badge { font-size: 1.3rem !important; top: -10px !important; }
+    .rank-apt { font-size: 0.92rem !important; }
+    .rank-price { font-size: 1.1rem !important; margin-top: 6px !important; }
+}
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -156,7 +207,7 @@ def get_visitor_storage():
 
 visitor_storage = get_visitor_storage()
 
-# 한국 시간(KST) 기준으로 날짜 및 접속 시각 생성
+# 한국 시간(KST) 기준 날짜 및 접속 시간 생성
 now_kst = datetime.now(KST)
 today_key = now_kst.strftime("%Y-%m-%d")
 
@@ -362,11 +413,11 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
 
     return pd.DataFrame(all_records)
 
-# ── 5. 사이드바 설정 (관리자 모드 최상단 배치) ──────────────
+# ── 5. 사이드바 설정 ─────────────────────────────────────
 st.sidebar.markdown("### ⚙️ 대시보드 설정")
 
-# [1] 관리자 모드 (사이드바 최상단에 배치)
-with st.sidebar.expander("🔒 관리자 모드", expanded=False):
+# [1] 관리자 모드
+with st.sidebar.expander("🔒 관리자 모드 (방문자 확인)", expanded=False):
     admin_password = st.text_input("비밀번호 입력", type="password", key="admin_auth_pwd")
     ADMIN_SECRET_KEY = "7576"
 
@@ -391,7 +442,7 @@ if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기", 
     st.cache_data.clear()
     st.rerun()
 
-# [2] 조회 기간 선택 (한국 시간 기준 연월 계산)
+# [2] 조회 기간 선택
 period_option = st.sidebar.selectbox(
     "📅 조회 기간 선택",
     ["최근 6개월 (실시간)", "최근 12개월 (1년)", "2024년 전체"],
@@ -517,7 +568,7 @@ else:
         unsafe_allow_html=True
     )
 
-# ── 6. 메인 UI 및 계층형 지역 필터 ────────────────────────
+# ── 6. 메인 UI 및 계층형 지역 필터 (모바일 2x2 반응형) ────────
 st.markdown("""
 <div class="hero-banner">
   <h1>🏠 전국 아파트 실거래가 및 내집마련 대시보드</h1>
@@ -639,7 +690,7 @@ else:
     affordable_df = view_df
     dong_rank_source = df
 
-# ── 7. 요약 통계 및 시각화 ─────────────────────────────────
+# ── 7. 요약 통계 및 시각화 (모바일 2x2 반응형) ───────────────
 match_pct = (len(affordable_df) / len(view_df) * 100) if len(view_df) > 0 else 0
 
 k1, k2, k3, k4 = st.columns(4)
@@ -698,7 +749,7 @@ else:
             <div class="kpi-sub muted">사이드바에서 계산기를 켜보세요</div>
         </div>""", unsafe_allow_html=True)
 
-st.write("")
+st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
 
 c1, c2 = st.columns([3, 2])
 
@@ -721,8 +772,8 @@ with c1:
         plot_bgcolor="#fcfcfb",
         paper_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=10, r=10, t=10, b=10),
-        height=320,
-        font=dict(family="Pretendard, sans-serif", color="#52514e", size=13),
+        height=300,
+        font=dict(family="Pretendard, sans-serif", color="#52514e", size=12),
         xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
         yaxis=dict(gridcolor="#e1e0d9", zeroline=False),
         hoverlabel=dict(bgcolor="#184f95", font_color="#ffffff", font_family="Pretendard, sans-serif"),
@@ -742,7 +793,7 @@ with c2:
     st.dataframe(
         rank_df,
         use_container_width=True,
-        height=290,
+        height=280,
         column_config={
             "거래건수": st.column_config.ProgressColumn(
                 "거래건수", format="%d건", min_value=0, max_value=max_count
@@ -750,7 +801,7 @@ with c2:
         }
     )
 
-st.write("")
+st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
 
 if calc_enabled:
     st.markdown(
@@ -791,7 +842,7 @@ else:
                     <div class="rank-price">{row['평균실거래가_fmt']}원</div>
                     <div class="rank-meta">거래 {row['거래건수']}건 · 최고가 {row['최근최고가_fmt']}원</div>
                 </div>""", unsafe_allow_html=True)
-        st.write("")
+        st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
     rest = apt_rank.iloc[3:].copy()
     if not rest.empty:
