@@ -8,9 +8,12 @@ import urllib.parse
 import html
 import time
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from dateutil.relativedelta import relativedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# 한국 표준시(KST, UTC+9) 타임존 정의
+KST = timezone(timedelta(hours=9))
 
 # ── 1. 페이지 설정 ──────────────────────────────────────
 st.set_page_config(
@@ -137,7 +140,7 @@ def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFr
     return cleaned_df
 
 
-# ── 2. 기본 설정, 세션 풀 및 방문자 집계 저장소 ──────────
+# ── 2. 기본 설정, 세션 풀 및 한국 표준시(KST) 방문자 집계 ───────
 DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
 ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
@@ -152,7 +155,10 @@ def get_visitor_storage():
     }
 
 visitor_storage = get_visitor_storage()
-today_key = datetime.now().strftime("%Y-%m-%d")
+
+# 한국 시간(KST) 기준으로 날짜 및 접속 시각 생성
+now_kst = datetime.now(KST)
+today_key = now_kst.strftime("%Y-%m-%d")
 
 # 세션별 1회 카운트 증가
 if "session_visited" not in st.session_state:
@@ -160,7 +166,7 @@ if "session_visited" not in st.session_state:
     visitor_storage["total"] += 1
     visitor_storage["daily"][today_key] = visitor_storage["daily"].get(today_key, 0) + 1
     visitor_storage["logs"].append({
-        "time": datetime.now().strftime("%H:%M:%S"),
+        "time": now_kst.strftime("%H:%M:%S"),
         "date": today_key
     })
 
@@ -359,8 +365,8 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
 # ── 5. 사이드바 설정 (관리자 모드 최상단 배치) ──────────────
 st.sidebar.markdown("### ⚙️ 대시보드 설정")
 
-# [1] 관리자 모드 (사이드바 최상단에 배치하여 100% 즉시 노출)
-with st.sidebar.expander("🔒 관리자 모드 (방문자 확인)", expanded=False):
+# [1] 관리자 모드 (사이드바 최상단에 배치)
+with st.sidebar.expander("🔒 관리자 모드", expanded=False):
     admin_password = st.text_input("비밀번호 입력", type="password", key="admin_auth_pwd")
     ADMIN_SECRET_KEY = "7576"
 
@@ -375,7 +381,7 @@ with st.sidebar.expander("🔒 관리자 모드 (방문자 확인)", expanded=Fa
 
         if visitor_storage["logs"]:
             today_logs = [log for log in visitor_storage["logs"] if log["date"] == today_key]
-            st.caption(f"최근 접속 기록: {today_logs[-1]['time'] if today_logs else '-'}")
+            st.caption(f"최근 접속 기록(한국 시간): {today_logs[-1]['time'] if today_logs else '-'}")
     elif admin_password:
         st.error("비밀번호가 일치하지 않습니다.")
 
@@ -385,18 +391,17 @@ if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기", 
     st.cache_data.clear()
     st.rerun()
 
-# [2] 조회 기간 선택
+# [2] 조회 기간 선택 (한국 시간 기준 연월 계산)
 period_option = st.sidebar.selectbox(
     "📅 조회 기간 선택",
     ["최근 6개월 (실시간)", "최근 12개월 (1년)", "2024년 전체"],
     index=0
 )
 
-now = datetime.now()
 if period_option == "최근 6개월 (실시간)":
-    target_months = [(now - relativedelta(months=i)).strftime('%Y%m') for i in range(5, -1, -1)]
+    target_months = [(now_kst - relativedelta(months=i)).strftime('%Y%m') for i in range(5, -1, -1)]
 elif period_option == "최근 12개월 (1년)":
-    target_months = [(now - relativedelta(months=i)).strftime('%Y%m') for i in range(11, -1, -1)]
+    target_months = [(now_kst - relativedelta(months=i)).strftime('%Y%m') for i in range(11, -1, -1)]
 else:
     target_months = [f"2024{m:02d}" for m in range(1, 13)]
 
