@@ -1079,13 +1079,11 @@ else:
     # 전세 데이터 사전 집계 (단지+평형별 최근 전세가)
     rent_dict = {}
     if not view_rent_df.empty:
-        # 저층 전세 제외 (시세 정밀화)
         clean_rent_df = view_rent_df[view_rent_df['floor'] > 3]
         if clean_rent_df.empty:
             clean_rent_df = view_rent_df
 
         for (c, g, d, a, p), r_group in clean_rent_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']):
-            # 최근 전세 거래 우선
             r_recent = r_group[r_group['month'].isin(late_fixed_months)]
             if not r_recent.empty:
                 r_price = r_recent['deposit'].mean()
@@ -1095,6 +1093,16 @@ else:
             rent_dict[(c, g, d, a, p)] = int(r_price)
 
     def aggregate_apt_metrics(group):
+        # [수정] Pandas 2.2+ 호환성: group.name 튜플에서 키 안전 추출
+        if hasattr(group, 'name') and isinstance(group.name, tuple):
+            c_val, g_val, d_val, a_val, p_val = group.name
+        else:
+            c_val = group['city'].iloc[0] if 'city' in group.columns else ''
+            g_val = group['gu'].iloc[0] if 'gu' in group.columns else ''
+            d_val = group['dong'].iloc[0] if 'dong' in group.columns else ''
+            a_val = group['apt'].iloc[0] if 'apt' in group.columns else ''
+            p_val = group['supply_pyeong'].iloc[0] if 'supply_pyeong' in group.columns else 0
+
         total_count = len(group)
         max_price_val = group['price'].max()
         mean_area = group['area'].mean()
@@ -1131,12 +1139,6 @@ else:
             trend_rate = 0.0
 
         # 5. 전세가 및 갭 매칭
-        c_val = group['city'].iloc[0]
-        g_val = group['gu'].iloc[0]
-        d_val = group['dong'].iloc[0]
-        a_val = group['apt'].iloc[0]
-        p_val = group['supply_pyeong'].iloc[0]
-
         rent_val = rent_dict.get((c_val, g_val, d_val, a_val, p_val), None)
         if rent_val and rent_val > 0:
             jeonse_rate = (rent_val / recent_mean) * 100
@@ -1157,9 +1159,15 @@ else:
             '전용면적_평균': mean_area
         })
 
-    apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']).apply(
-        aggregate_apt_metrics
-    ).reset_index()
+    # Pandas 버전별 groupby apply 호출
+    try:
+        apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']).apply(
+            aggregate_apt_metrics, include_groups=False
+        ).reset_index()
+    except TypeError:
+        apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']).apply(
+            aggregate_apt_metrics
+        ).reset_index()
 
     apt_rank['상태배지'] = apt_rank['변동률'].apply(get_trend_badge)
 
