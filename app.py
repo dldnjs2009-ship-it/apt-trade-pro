@@ -137,10 +137,32 @@ def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFr
     return cleaned_df
 
 
-# ── 2. 기본 설정 및 고속 HTTP 세션 풀 ─────────────────────
+# ── 2. 기본 설정, 세션 풀 및 방문자 트래커 ───────────────────
 DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
 ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+
+# 방문자 집계용 서버 공용 메모리
+@st.cache_resource
+def get_visitor_storage():
+    return {
+        "daily": {},
+        "total": 0,
+        "logs": []
+    }
+
+visitor_storage = get_visitor_storage()
+today_key = datetime.now().strftime("%Y-%m-%d")
+
+# 세션별 1회 카운트 증가
+if "session_visited" not in st.session_state:
+    st.session_state["session_visited"] = True
+    visitor_storage["total"] += 1
+    visitor_storage["daily"][today_key] = visitor_storage["daily"].get(today_key, 0) + 1
+    visitor_storage["logs"].append({
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "date": today_key
+    })
 
 @st.cache_resource
 def get_http_session():
@@ -334,7 +356,7 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
 
     return pd.DataFrame(all_records)
 
-# ── 5. 사이드바 설정 (기간, 네이버 부동산식 면적 필터, 예산 계산기) ──
+# ── 5. 사이드바 설정 (필터 + 계산기 + 관리자 모드 일체형) ─────
 st.sidebar.markdown("### ⚙️ 대시보드 설정")
 
 if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기", use_container_width=True):
@@ -365,16 +387,12 @@ filter_bulk_option = st.sidebar.checkbox(
 
 st.sidebar.markdown("---")
 
-# ── [네이버 부동산식 면적 필터 인터페이스] ──────────────────
+# [3] 네이버 부동산식 면적 필터
 st.sidebar.markdown("### 📐 전용면적 필터")
-
-# 단위 선택 (평 / ㎡)
 area_unit = st.sidebar.radio("면적 단위", ["평", "㎡"], index=0, horizontal=True)
 
-# 평형대 빠른 선택 (버튼형 다중 선택)
 quick_pyeong_options = ["~10평", "10평대", "20평대", "30평대", "40평대", "50평대", "60평대", "70평~"]
 
-# 기본값: 20평대, 30평대, 40평대, 50평대, 60평대, 70평~ 선택 (원룸 제외 실주거 평형 기본)
 selected_quick_pyeong = st.sidebar.multiselect(
     "⚡ 평형대 빠른 선택 (다중 선택 가능)",
     quick_pyeong_options,
@@ -382,7 +400,6 @@ selected_quick_pyeong = st.sidebar.multiselect(
     help="원하는 평형대 칩을 클릭하여 다중 선택할 수 있습니다."
 )
 
-# 평형대별 최소/최대 평수 매핑 딕셔너리
 PYEONG_BAND_MAP = {
     "~10평": (0.0, 9.99),
     "10평대": (10.0, 19.99),
@@ -394,7 +411,6 @@ PYEONG_BAND_MAP = {
     "70평~": (70.0, 999.0)
 }
 
-# 슬라이더 미세 조정 기능
 if area_unit == "평":
     slider_pyeong_range = st.sidebar.slider(
         "슬라이더 범위 미세 조정 (평)",
@@ -418,7 +434,7 @@ else:
 
 st.sidebar.markdown("---")
 
-# [3] 내 자본금 맞춤 계산기
+# [4] 내 자본금 맞춤 계산기
 calc_enabled = st.sidebar.toggle("🪙 내 자본금 맞춤 계산기 활성화", value=False)
 
 if calc_enabled:
@@ -473,6 +489,29 @@ else:
         '예산 이하 단지만 걸러서 볼 수 있어요.</div>',
         unsafe_allow_html=True
     )
+
+st.sidebar.markdown("---")
+
+# [5] 관리자 전용 방문자 통계 모드 (사이드바 배치)
+with st.sidebar.expander("🔒 관리자 모드"):
+    admin_password = st.text_input("관리자 비밀번호", type="password", key="admin_auth_pwd")
+    ADMIN_SECRET_KEY = "7576"
+
+    if admin_password == ADMIN_SECRET_KEY:
+        st.success("관리자 인증 성공")
+        today_visitors = visitor_storage["daily"].get(today_key, 0)
+        total_visitors = visitor_storage["total"]
+
+        adm_col1, adm_col2 = st.columns(2)
+        adm_col1.metric("오늘 방문자", f"{today_visitors:,}명")
+        adm_col2.metric("누적 방문자", f"{total_visitors:,}명")
+
+        if visitor_storage["logs"]:
+            today_logs = [log for log in visitor_storage["logs"] if log["date"] == today_key]
+            st.caption(f"최근 접속 기록: {today_logs[-1]['time'] if today_logs else '-'}")
+    elif admin_password:
+        st.error("비밀번호가 일치하지 않습니다.")
+
 
 # ── 6. 메인 UI 및 계층형 지역 필터 ────────────────────────
 st.markdown("""
@@ -554,28 +593,25 @@ if raw_df.empty:
     st.warning("국토교통부 API 서버 응답이 지연되었습니다. 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러주세요.")
     st.stop()
 
-# ── [데이터 정제: 1. 통매입 필터 -> 2. 네이버식 면적 필터 적용] ──
+# ── [데이터 정제: 1. 통매입 필터 -> 2. 면적 필터] ──────────
 df = raw_df.copy()
 if filter_bulk_option:
     df = remove_bulk_acquisitions(df, threshold=10)
 
-# 평수 컬럼 계산
 df['pyeong_val'] = df['area'] / 3.30578
 
-# [A] 평형대 빠른 선택 필터 적용
 if selected_quick_pyeong and len(selected_quick_pyeong) < len(quick_pyeong_options):
     condition_list = []
     for band in selected_quick_pyeong:
         p_min, p_max = PYEONG_BAND_MAP[band]
         condition_list.append((df['pyeong_val'] >= p_min) & (df['pyeong_val'] <= p_max))
-    
+
     if condition_list:
         combined_cond = condition_list[0]
         for cond in condition_list[1:]:
             combined_cond = combined_cond | cond
         df = df[combined_cond].copy()
 
-# [B] 슬라이더 미세 조정 필터 적용
 if area_unit == "평":
     if slider_min_p > 0 or slider_max_p < 80:
         max_p_limit = slider_max_p if slider_max_p < 80 else 999.0
@@ -590,7 +626,6 @@ with col4:
     dong_list = ['전체 보기'] + sorted(list(df['dong'].unique())) if not df.empty else ['전체 보기']
     selected_dong = st.selectbox("읍·면·동", dong_list, label_visibility="collapsed")
 
-# 읍·면·동 필터용 view_df 분리 (차트, KPI, 추천단지용)
 view_df = df if selected_dong == '전체 보기' else df[df['dong'] == selected_dong]
 
 if filter_by_budget and max_affordable_price is not None:
@@ -769,29 +804,3 @@ else:
                 )
             }
         )
-# ── 관리자 전용 방문자 통계 UI (사이드바 하단) ───────────────
-st.sidebar.markdown("---")
-
-with st.sidebar.expander("🔒 관리자 모드"):
-    admin_password = st.text_input("관리자 비밀번호", type="password", key="admin_auth_pwd")
-    
-    # 💡 본인만 알 수 있는 비밀번호로 변경하세요
-    ADMIN_SECRET_KEY = "7576"
-
-    if admin_password == ADMIN_SECRET_KEY:
-        st.success("관리자 인증 성공")
-        
-        today_visitors = visitor_storage["daily"].get(today_key, 0)
-        total_visitors = visitor_storage["total"]
-        
-        adm_col1, adm_col2 = st.columns(2)
-        adm_col1.metric("오늘 방문자", f"{today_visitors:,}명")
-        adm_col2.metric("누적 방문자", f"{total_visitors:,}명")
-        
-        # 최근 방문 시간 로그 5건 확인
-        if visitor_storage["logs"]:
-            today_logs = [log for log in visitor_storage["logs"] if log["date"] == today_key]
-            st.caption(f"최근 접속 기록: {today_logs[-1]['time'] if today_logs else '-'}")
-            
-    elif admin_password:
-        st.error("비밀번호가 일치하지 않습니다.")
