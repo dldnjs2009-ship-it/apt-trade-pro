@@ -1076,7 +1076,7 @@ with c2:
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-# ── 9. 추천 단지 TOP 15 (매매/전세 6개월 변동 추세 및 전세가율) ──────
+# ── 9. 추천 단지 TOP 15 (전세가율 컬럼을 거래건수 앞으로 배치) ────────
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -1232,14 +1232,13 @@ else:
             loc_txt = html.escape(f"{row['city']} {row['gu']} {row['dong']} · {row['전용면적_평형']}")
             trend_badge_html = row['상태배지']
             
-            # 전세 및 전세 6개월 변동 안내 (실투자 갭 제외)
+            # 전세가율 및 전세 6개월 변동 박스 (HTML 파싱 에러 방지 단일 행 결합)
             if row['전세가율_fmt'] != "-":
                 jeonse_trend_str = f"전세 6개월 {row['전세변동_fmt']}" if row['전세변동_fmt'] != "-" else ""
-                jeonse_html = f'<div class="rank-jeonse-box">전세 {row["최근전세가_fmt"]} (전세가율 {row["전세가율_fmt"]})<br><span style="font-size:0.71rem; color:var(--ink-secondary);">{jeonse_trend_str}</span></div>'
+                jeonse_html = f'<div class="rank-jeonse-box">전세 {row["최근전세가_fmt"]} (<b>전세가율 {row["전세가율_fmt"]}</b>)<br><span style="font-size:0.71rem; color:var(--ink-secondary);">{jeonse_trend_str}</span></div>'
             else:
                 jeonse_html = '<div class="rank-jeonse-box" style="color:var(--ink-muted); border-color:var(--border-hairline);">최근 전세 거래 없음</div>'
 
-            # 단일 문자열 결합으로 HTML 파싱 오류 원천 차단
             card_html = (
                 f'<div class="rank-card">'
                 f'<div>'
@@ -1258,19 +1257,19 @@ else:
                 st.markdown(card_html, unsafe_allow_html=True)
         st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
-    # 4위 이하 단지 표
+    # 4위 이하 단지 표 (전세가율을 거래건수 바로 앞으로 배치)
     rest = apt_rank.iloc[3:].copy()
     if not rest.empty:
         rest['6개월매매변동'] = rest['변동률'].apply(format_trend_text)
         rest['거래건수'] = rest['거래건수'].astype(int)
 
         rest_display = rest[[
-            'city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', 
-            '최근실거래가_fmt', '6개월매매변동', '최근전세가_fmt', '전세가율_fmt', '전세변동_fmt'
+            'city', 'gu', 'dong', 'apt', '전용면적_평형', '전세가율_fmt', '거래건수', 
+            '최근실거래가_fmt', '6개월매매변동', '최근전세가_fmt', '전세변동_fmt'
         ]].copy()
         rest_display.columns = [
-            '시·군', '구', '법정동', '단지명', '면적(공급평형)', '거래건수', 
-            '최근 매매가', '매매 6개월 변동', '최근 전세가', '전세가율', '전세 6개월 변동'
+            '시·군', '구', '법정동', '단지명', '면적(공급평형)', '전세가율', '거래건수', 
+            '최근 매매가', '매매 6개월 변동', '최근 전세가', '전세 6개월 변동'
         ]
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
