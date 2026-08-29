@@ -22,7 +22,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── 1-1. 디자인 시스템 (PC / 모바일 반응형 CSS) ───────────
+# ── 1-1. 디자인 시스템 (PC / 모바일 반응형 CSS Grid) ─────────
 CUSTOM_CSS = """
 <style>
 @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
@@ -40,6 +40,7 @@ CUSTOM_CSS = """
     --good: #0ca30c;
     --danger: #e53e3e;
     --warning: #dd6b20;
+    --naver-green: #03c75a;
 }
 
 html, body, [class*="css"] {
@@ -102,12 +103,13 @@ html, body, [class*="css"] {
     border: 1px solid var(--border-hairline);
     box-shadow: 0 6px 18px rgba(11,11,11,0.05);
     position: relative; height: 100%;
+    display: flex; flex-direction: column; justify-content: space-between;
 }
 .rank-badge { position: absolute; top: -12px; left: 14px; font-size: 1.5rem; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.12)); }
-.rank-apt { font-weight: 800; font-size: 0.98rem; margin-top: 8px; color: var(--ink-primary); line-height: 1.3; }
-.rank-loc { font-size: .75rem; color: var(--ink-muted); margin-top: 4px; }
-.rank-price { font-size: 1.25rem; font-weight: 800; color: var(--brand-accent); margin-top: 10px; font-variant-numeric: tabular-nums; }
-.rank-meta { font-size: .74rem; color: var(--ink-secondary); margin-top: 4px; }
+.rank-apt { font-weight: 800; font-size: 1.0rem; margin-top: 8px; color: var(--ink-primary); line-height: 1.3; }
+.rank-loc { font-size: .76rem; color: var(--ink-muted); margin-top: 3px; }
+.rank-price { font-size: 1.35rem; font-weight: 800; color: var(--brand-accent); margin-top: 10px; font-variant-numeric: tabular-nums; }
+.rank-meta { font-size: .75rem; color: var(--ink-secondary); margin-top: 4px; }
 
 /* 상태 배지 칩 */
 .badge-rate {
@@ -116,6 +118,19 @@ html, body, [class*="css"] {
 .badge-rate.bargain { background: rgba(229, 62, 62, 0.12); color: var(--danger); }
 .badge-rate.adjust { background: rgba(221, 107, 32, 0.12); color: var(--warning); }
 .badge-rate.high { background: rgba(42, 120, 214, 0.12); color: var(--brand-primary); }
+
+/* 네이버 부동산 바로가기 버튼 */
+.naver-link-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    width: 100%; margin-top: 12px; padding: 8px 0;
+    background-color: #f0fbf4; color: var(--naver-green) !important;
+    border: 1px solid rgba(3, 199, 90, 0.3); border-radius: 8px;
+    font-size: 0.78rem; font-weight: 700; text-decoration: none !important;
+    transition: all 0.15s ease;
+}
+.naver-link-btn:hover {
+    background-color: var(--naver-green); color: #ffffff !important;
+}
 
 /* 데이터프레임 스타일 */
 div[data-testid="stDataFrame"] {
@@ -182,7 +197,7 @@ section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px
     .rank-card { padding: 12px 14px !important; margin-top: 10px !important; }
     .rank-badge { font-size: 1.3rem !important; top: -10px !important; }
     .rank-apt { font-size: 0.92rem !important; }
-    .rank-price { font-size: 1.1rem !important; margin-top: 6px !important; }
+    .rank-price { font-size: 1.15rem !important; margin-top: 6px !important; }
 }
 </style>
 """
@@ -197,11 +212,7 @@ def format_price(x: int) -> str:
 
 
 def get_pyeong_group_key(m2: float) -> tuple:
-    """
-    전용면적(㎡)을 분양/공급 체감 평형 그룹으로 정확히 분류
-    반환: (공급평형_정수, '전용면적㎡ (N평형)')
-    """
-    # 통상 아파트 전용률 74.5% 기준 공급평형 산출
+    """전용면적(㎡)을 분양/공급 체감 평형 그룹으로 분류."""
     supply_p = int(round((m2 / 3.30578) / 0.745))
     label = f"{m2:.1f}㎡ ({supply_p}평형)"
     return supply_p, label
@@ -257,7 +268,7 @@ def calculate_dsr_max_loan(annual_income: int, loan_interest: float, term_years:
 
 
 def get_price_rate_badge(change_rate: float) -> str:
-    """전고점 대비 변동률에 따른 상태 배지 HTML 생성"""
+    """최근 실거래가 대비 최고가 변동률 배지 생성"""
     if change_rate <= -20.0:
         return f'<span class="badge-rate bargain">급매권 ({change_rate:+.1f}%)</span>'
     elif change_rate <= -8.0:
@@ -394,7 +405,7 @@ REGION_STRUCTURE = {
     }
 }
 
-# ── 3. 단일 월 수집 태스크 (취소거래/직거래/층수 정밀 파싱) ──
+# ── 3. 단일 월 수집 태스크 ────────────────────────────────
 def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
     task_records = []
     page = 1
@@ -443,7 +454,7 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
         for item in items:
             r = {child.tag: (child.text.strip() if child.text else '') for child in item}
             
-            # 계약 취소 건 원천 배제
+            # 취소 거래 제외
             if r.get('cdealType', '') == 'O' or r.get('cdealDay', '') != '':
                 continue
 
@@ -461,8 +472,10 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
             except ValueError:
                 floor_val = 0
 
-            # 거래 유형 (중개거래 vs 직거래)
             deal_type = r.get('dealingGbn', '').strip() or r.get('reqGbn', '').strip() or '중개거래'
+            deal_year = r.get('dealYear', '')
+            deal_month = str(r.get('dealMonth', '')).zfill(2)
+            deal_day = str(r.get('dealDay', '1')).zfill(2)
 
             task_records.append({
                 'sido': sido,
@@ -474,7 +487,8 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
                 'floor': floor_val,
                 'deal_type': deal_type,
                 'price': int(str(r.get('dealAmount', '0')).replace(',', '').strip() or 0),
-                'month': f"{r.get('dealYear', '')}-{str(r.get('dealMonth', '')).zfill(2)}"
+                'month': f"{deal_year}-{deal_month}",
+                'deal_date': f"{deal_year}-{deal_month}-{deal_day}"
             })
 
         if len(items) < 1000 or len(task_records) >= total:
@@ -550,7 +564,7 @@ elif period_option == "최근 12개월 (1년)":
 else:
     target_months = [f"2024{m:02d}" for m in range(1, 13)]
 
-# [2] 이상치, 직거래 및 층수 왜곡 방지 필터
+# [2] 정밀 필터링 옵션
 filter_bulk_option = st.sidebar.checkbox(
     "🚫 통매입/임대 대량 일괄거래 제외",
     value=True,
@@ -888,7 +902,7 @@ else:
         <div class="kpi-card">
             <div class="kpi-label">💰 평균 실거래가</div>
             <div class="kpi-value accent">{format_price(avg_price)}</div>
-            <div class="kpi-sub muted">로열층 중개거래 평균</div>
+            <div class="kpi-sub muted">로열층 중개거래 전체 평균</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">🏆 최고 실거래가</div>
@@ -958,7 +972,7 @@ with c2:
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-# ── 9. 추천 단지 TOP 15 (평형대별 정확한 분리 집계) ─────────────
+# ── 9. 추천 단지 TOP 15 (최신 실거래가 중심 + 네이버 매물 링크) ───
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -970,21 +984,40 @@ else:
 if affordable_df.empty:
     st.info("현재 설정된 조건(면적/예산/층수 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
 else:
-    # 핵심 수정: 단지(apt)뿐만 아니라 평형(supply_pyeong)을 함께 그룹화하여 평형별 정확한 시세 분리
-    apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']).agg(
-        거래건수=('price', 'count'),
-        평균실거래가=('price', 'mean'),
-        해당평형최고가=('price', 'max'),
-        전용면적_평균=('area', 'mean')
+    # 가장 최근 2개 월 추출 (최신 시세 산출용)
+    recent_two_months = sorted(list(affordable_df['month'].unique()))[-2:]
+
+    # 단지+평형별 정밀 집계 함수
+    def aggregate_apt_metrics(group):
+        total_count = len(group)
+        max_price_val = group['price'].max()
+        mean_area = group['area'].mean()
+        
+        # 최근 1~2개월 실거래 데이터만 별도 추출하여 최신 시세 산출
+        recent_deals = group[group['month'].isin(recent_two_months)]
+        if not recent_deals.empty:
+            recent_mean = recent_deals['price'].mean()
+        else:
+            recent_mean = group['price'].mean()
+            
+        return pd.Series({
+            '거래건수': total_count,
+            '최근실거래가': recent_mean,
+            '해당평형최고가': max_price_val,
+            '전용면적_평균': mean_area
+        })
+
+    apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']).apply(
+        aggregate_apt_metrics
     ).reset_index()
 
-    # 해당 평형 전고점(최고가) 대비 변동률 계산
-    apt_rank['변동률'] = ((apt_rank['평균실거래가'] - apt_rank['해당평형최고가']) / apt_rank['해당평형최고가']) * 100
+    # 최근 실거래가 기준 전고점(최고가) 대비 변동률 산출
+    apt_rank['변동률'] = ((apt_rank['최근실거래가'] - apt_rank['해당평형최고가']) / apt_rank['해당평형최고가']) * 100
     apt_rank['상태배지'] = apt_rank['변동률'].apply(get_price_rate_badge)
 
     apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(15).reset_index(drop=True)
 
-    apt_rank['평균실거래가_fmt'] = apt_rank['평균실거래가'].astype(int).apply(format_price)
+    apt_rank['최근실거래가_fmt'] = apt_rank['최근실거래가'].astype(int).apply(format_price)
     apt_rank['해당평형최고가_fmt'] = apt_rank['해당평형최고가'].astype(int).apply(format_price)
     apt_rank['전용면적_평형'] = apt_rank['전용면적_평균'].apply(
         lambda x: f"{x:.1f}㎡ ({int(round((x/3.30578)/0.745))}평형)"
@@ -998,18 +1031,26 @@ else:
             apt_name = html.escape(str(row['apt']))
             loc_txt = html.escape(f"{row['city']} {row['gu']} {row['dong']} · {row['전용면적_평형']}")
             rate_badge_html = row['상태배지']
+            # 네이버 부동산 모바일 검색 바로가기 URL
+            naver_search_url = f"https://m.land.naver.com/search/result/{urllib.parse.quote(str(row['apt']))}"
 
             with top_cols[i]:
                 st.markdown(f"""<div class="rank-card">
-                    <div class="rank-badge">{medals[i]}</div>
-                    <div class="rank-apt">{apt_name}</div>
-                    <div class="rank-loc">{loc_txt}</div>
-                    <div>{rate_badge_html}</div>
-                    <div class="rank-price">{row['평균실거래가_fmt']}원</div>
-                    <div class="rank-meta">거래 {row['거래건수']}건 · 최고가 {row['해당평형최고가_fmt']}원</div>
+                    <div>
+                        <div class="rank-badge">{medals[i]}</div>
+                        <div class="rank-apt">{apt_name}</div>
+                        <div class="rank-loc">{loc_txt}</div>
+                        <div>{rate_badge_html}</div>
+                        <div class="rank-price">{row['최근실거래가_fmt']}원</div>
+                        <div class="rank-meta">거래 {int(row['거래건수'])}건 · 최고가 {row['해당평형최고가_fmt']}원</div>
+                    </div>
+                    <a href="{naver_search_url}" target="_blank" class="naver-link-btn">
+                        🔍 네이버 매물 호가 확인
+                    </a>
                 </div>""", unsafe_allow_html=True)
-        st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
+    # 4위 이하 단지 표
     rest = apt_rank.iloc[3:].copy()
     if not rest.empty:
         def format_status_text(val):
@@ -1023,16 +1064,28 @@ else:
                 return "신고가"
 
         rest['전고점대비'] = rest['변동률'].apply(format_status_text)
-        rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '평균실거래가_fmt', '해당평형최고가_fmt', '전고점대비']].copy()
-        rest_display.columns = ['시·군', '구', '법정동(읍·면)', '단지명', '면적(공급평형)', '거래건수', '평균 실거래가', '해당 평형 최고가', '전고점대비 상태']
+        rest['거래건수'] = rest['거래건수'].astype(int)
+        
+        # 네이버 부동산 매물 검색 URL 생성
+        rest['naver_url'] = rest['apt'].apply(
+            lambda name: f"https://m.land.naver.com/search/result/{urllib.parse.quote(str(name))}"
+        )
+
+        rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '최근실거래가_fmt', '해당평형최고가_fmt', '전고점대비', 'naver_url']].copy()
+        rest_display.columns = ['시·군', '구', '법정동', '단지명', '면적(공급평형)', '거래건수', '최근 실거래가', '최고가', '전고점대비', '네이버 매물']
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
+        
         st.dataframe(
             rest_display,
             use_container_width=True,
             column_config={
                 "거래건수": st.column_config.ProgressColumn(
                     "거래건수", format="%d건", min_value=0, max_value=max_txn
+                ),
+                "네이버 매물": st.column_config.LinkColumn(
+                    "네이버 매물",
+                    display_text="매물 확인 🔗"
                 )
             }
         )
