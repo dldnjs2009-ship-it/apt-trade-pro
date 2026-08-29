@@ -22,7 +22,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── 1-1. 디자인 시스템 (PC / 모바일 반응형 CSS Grid) ─────────
+# ── 1-1. 디자인 시스템 (PC / 모바일 반응형 CSS) ───────────
 CUSTOM_CSS = """
 <style>
 @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
@@ -196,11 +196,15 @@ def format_price(x: int) -> str:
     return f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만"
 
 
-def format_pyeong_str(m2: float) -> str:
-    """전용면적(㎡)을 분양/공급 체감 평형(59㎡->24평형, 84㎡->34평형)으로 환산."""
-    # 통상 아파트 전용률 약 74.5% 기준 공급평형 계산
-    supply_pyeong = int(round((m2 / 3.30578) / 0.745))
-    return f"{m2:.1f}㎡ ({supply_pyeong}평형)"
+def get_pyeong_group_key(m2: float) -> tuple:
+    """
+    전용면적(㎡)을 분양/공급 체감 평형 그룹으로 정확히 분류
+    반환: (공급평형_정수, '전용면적㎡ (N평형)')
+    """
+    # 통상 아파트 전용률 74.5% 기준 공급평형 산출
+    supply_p = int(round((m2 / 3.30578) / 0.745))
+    label = f"{m2:.1f}㎡ ({supply_p}평형)"
+    return supply_p, label
 
 
 def calculate_acquisition_costs(price: int) -> dict:
@@ -390,7 +394,7 @@ REGION_STRUCTURE = {
     }
 }
 
-# ── 3. 단일 월 수집 태스크 (층수 floor 필드 파싱 추가) ────────
+# ── 3. 단일 월 수집 태스크 (취소거래/직거래/층수 정밀 파싱) ──
 def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
     task_records = []
     page = 1
@@ -438,6 +442,8 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
 
         for item in items:
             r = {child.tag: (child.text.strip() if child.text else '') for child in item}
+            
+            # 계약 취소 건 원천 배제
             if r.get('cdealType', '') == 'O' or r.get('cdealDay', '') != '':
                 continue
 
@@ -449,12 +455,14 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
                 if len(parts) > 1 and parts[0].endswith(('읍', '면')):
                     raw_dong = parts[0]
 
-            # 층수(floor) 정수 파싱
             floor_str = str(r.get('floor', '0')).strip()
             try:
                 floor_val = int(floor_str)
             except ValueError:
                 floor_val = 0
+
+            # 거래 유형 (중개거래 vs 직거래)
+            deal_type = r.get('dealingGbn', '').strip() or r.get('reqGbn', '').strip() or '중개거래'
 
             task_records.append({
                 'sido': sido,
@@ -464,6 +472,7 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
                 'apt': r.get('aptNm', '').strip(),
                 'area': float(r.get('excluUseAr', 0) or 0),
                 'floor': floor_val,
+                'deal_type': deal_type,
                 'price': int(str(r.get('dealAmount', '0')).replace(',', '').strip() or 0),
                 'month': f"{r.get('dealYear', '')}-{str(r.get('dealMonth', '')).zfill(2)}"
             })
@@ -541,11 +550,17 @@ elif period_option == "최근 12개월 (1년)":
 else:
     target_months = [f"2024{m:02d}" for m in range(1, 13)]
 
-# [2] 이상치 및 층수 왜곡 방지 필터
+# [2] 이상치, 직거래 및 층수 왜곡 방지 필터
 filter_bulk_option = st.sidebar.checkbox(
     "🚫 통매입/임대 대량 일괄거래 제외",
     value=True,
     help="동일 단지·월·면적·가격으로 10건 이상 동시 등록된 공공 매입임대/통매매 이상치를 제거합니다."
+)
+
+exclude_direct_trade = st.sidebar.checkbox(
+    "🚫 직거래(증여성/특수거래) 제외",
+    value=True,
+    help="시세보다 수억 원 낮게 거래되는 가족 간 증여성 직거래를 제외하여 정확한 시세를 반영합니다."
 )
 
 exclude_low_floor = st.sidebar.checkbox(
@@ -575,7 +590,6 @@ selected_quick_pyeong = st.sidebar.multiselect(
     help="체감 공급평형(24평형, 34평형 등) 기준으로 필터링합니다."
 )
 
-# 체감 분양평형 매핑 (전용률 74.5% 반영)
 PYEONG_BAND_MAP = {
     "~10평형대": (0.0, 19.99),
     "20평형대 (전용 59타입 등)": (20.0, 29.99),
@@ -637,13 +651,11 @@ if calc_enabled:
     loan_interest = st.sidebar.slider("대출 예상 금리 (%)", min_value=2.0, max_value=8.0, value=4.0, step=0.1)
     loan_term_years = st.sidebar.selectbox("대출 만기 (년)", [10, 20, 30, 40], index=2)
 
-    # DSR 40% 한도 산출
     if use_dsr and annual_income > 0:
         dsr_max_loan = calculate_dsr_max_loan(annual_income, loan_interest, loan_term_years)
     else:
         dsr_max_loan = 9999999
 
-    # 부대비용 반영 매수가 역산
     temp_price = int(my_capital / (1 - (ltv_rate / 100) + 0.035)) if ltv_rate < 100 else my_capital * 2
     for _ in range(3):
         costs = calculate_acquisition_costs(temp_price)
@@ -777,14 +789,15 @@ if raw_df.empty:
     st.warning("국토교통부 API 서버 응답이 지연되었습니다. 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러주세요.")
     st.stop()
 
-# ── [데이터 정제: 1. 통매입 필터 -> 2. 저층/탑층 왜곡 필터 -> 3. 면적 필터] ──
+# ── [데이터 정제: 1. 통매입 -> 2. 직거래 -> 3. 저층/탑층 -> 4. 평형별 분리] ──
 df = raw_df.copy()
 
-# [1] 통매입 이상치 제거
 if filter_bulk_option:
     df = remove_bulk_acquisitions(df, threshold=10)
 
-# [2] 저층 및 탑층 왜곡 필터링
+if exclude_direct_trade:
+    df = df[df['deal_type'] != '직거래'].copy()
+
 if exclude_low_floor:
     df = df[df['floor'] > 3].copy()
 
@@ -792,10 +805,12 @@ if exclude_top_floor and not df.empty:
     max_floors = df.groupby(['city', 'gu', 'dong', 'apt'])['floor'].transform('max')
     df = df[(df['floor'] < max_floors) | (max_floors <= 4)].copy()
 
-# 체감 공급평형 컬럼 생성 (전용률 약 74.5% 기준)
-df['supply_pyeong'] = (df['area'] / 3.30578) / 0.745
+# 평형 그룹 및 라벨 산출
+pyeong_info = df['area'].apply(get_pyeong_group_key)
+df['supply_pyeong'] = [p[0] for p in pyeong_info]
+df['pyeong_label'] = [p[1] for p in pyeong_info]
 
-# [3] 면적 필터 적용
+# 면적 필터 적용
 if selected_quick_pyeong and len(selected_quick_pyeong) < len(quick_pyeong_options):
     condition_list = []
     for band in selected_quick_pyeong:
@@ -868,12 +883,12 @@ else:
         <div class="kpi-card">
             <div class="kpi-label">📊 전체 거래건수</div>
             <div class="kpi-value">{len(view_df):,}건</div>
-            <div class="kpi-sub muted">저층 제외 · 정상 거래 기준</div>
+            <div class="kpi-sub muted">저층·직거래 제외 정상 거래</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">💰 평균 실거래가</div>
             <div class="kpi-value accent">{format_price(avg_price)}</div>
-            <div class="kpi-sub muted">로열층 중심 실거래 평균</div>
+            <div class="kpi-sub muted">로열층 중개거래 평균</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">🏆 최고 실거래가</div>
@@ -943,7 +958,7 @@ with c2:
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-# ── 9. 추천 단지 TOP 15 ──────────────────────────────────
+# ── 9. 추천 단지 TOP 15 (평형대별 정확한 분리 집계) ─────────────
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -955,22 +970,25 @@ else:
 if affordable_df.empty:
     st.info("현재 설정된 조건(면적/예산/층수 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
 else:
-    apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt']).agg(
+    # 핵심 수정: 단지(apt)뿐만 아니라 평형(supply_pyeong)을 함께 그룹화하여 평형별 정확한 시세 분리
+    apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']).agg(
         거래건수=('price', 'count'),
         평균실거래가=('price', 'mean'),
-        최근최고가=('price', 'max'),
+        해당평형최고가=('price', 'max'),
         전용면적_평균=('area', 'mean')
     ).reset_index()
 
-    apt_rank['변동률'] = ((apt_rank['평균실거래가'] - apt_rank['최근최고가']) / apt_rank['최근최고가']) * 100
+    # 해당 평형 전고점(최고가) 대비 변동률 계산
+    apt_rank['변동률'] = ((apt_rank['평균실거래가'] - apt_rank['해당평형최고가']) / apt_rank['해당평형최고가']) * 100
     apt_rank['상태배지'] = apt_rank['변동률'].apply(get_price_rate_badge)
 
     apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(15).reset_index(drop=True)
 
     apt_rank['평균실거래가_fmt'] = apt_rank['평균실거래가'].astype(int).apply(format_price)
-    apt_rank['최근최고가_fmt'] = apt_rank['최근최고가'].astype(int).apply(format_price)
-    # 체감 공급평형 포맷 적용 (59㎡ -> 24평형, 84㎡ -> 34평형)
-    apt_rank['전용면적_평형'] = apt_rank['전용면적_평균'].apply(format_pyeong_str)
+    apt_rank['해당평형최고가_fmt'] = apt_rank['해당평형최고가'].astype(int).apply(format_price)
+    apt_rank['전용면적_평형'] = apt_rank['전용면적_평균'].apply(
+        lambda x: f"{x:.1f}㎡ ({int(round((x/3.30578)/0.745))}평형)"
+    )
 
     medals = ['🥇', '🥈', '🥉']
     top3 = apt_rank.head(3)
@@ -988,7 +1006,7 @@ else:
                     <div class="rank-loc">{loc_txt}</div>
                     <div>{rate_badge_html}</div>
                     <div class="rank-price">{row['평균실거래가_fmt']}원</div>
-                    <div class="rank-meta">거래 {row['거래건수']}건 · 최고가 {row['최근최고가_fmt']}원</div>
+                    <div class="rank-meta">거래 {row['거래건수']}건 · 최고가 {row['해당평형최고가_fmt']}원</div>
                 </div>""", unsafe_allow_html=True)
         st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
@@ -1005,8 +1023,8 @@ else:
                 return "신고가"
 
         rest['전고점대비'] = rest['변동률'].apply(format_status_text)
-        rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '평균실거래가_fmt', '최근최고가_fmt', '전고점대비']].copy()
-        rest_display.columns = ['시·군', '구', '법정동(읍·면)', '단지명', '면적(공급평형)', '거래건수', '평균 실거래가', '최고가', '전고점대비 상태']
+        rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '평균실거래가_fmt', '해당평형최고가_fmt', '전고점대비']].copy()
+        rest_display.columns = ['시·군', '구', '법정동(읍·면)', '단지명', '면적(공급평형)', '거래건수', '평균 실거래가', '해당 평형 최고가', '전고점대비 상태']
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
         st.dataframe(
