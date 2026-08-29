@@ -22,7 +22,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── 1-1. 디자인 시스템 (PC / 모바일 반응형 2x2 CSS Grid) ─────
+# ── 1-1. 디자인 시스템 (PC / 모바일 반응형 CSS Grid) ─────────
 CUSTOM_CSS = """
 <style>
 @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
@@ -38,6 +38,8 @@ CUSTOM_CSS = """
     --ink-muted: #898781;
     --border-hairline: rgba(11,11,11,0.08);
     --good: #0ca30c;
+    --danger: #e53e3e;
+    --warning: #dd6b20;
 }
 
 html, body, [class*="css"] {
@@ -64,7 +66,7 @@ html, body, [class*="css"] {
     margin-bottom: 3px;
 }
 
-/* KPI 카드 4열(PC) / 2열(모바일) CSS Grid */
+/* KPI 카드 그리드 */
 .kpi-grid-container {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -107,24 +109,33 @@ html, body, [class*="css"] {
 .rank-price { font-size: 1.25rem; font-weight: 800; color: var(--brand-accent); margin-top: 10px; font-variant-numeric: tabular-nums; }
 .rank-meta { font-size: .74rem; color: var(--ink-secondary); margin-top: 4px; }
 
+/* 상태 배지 칩 */
+.badge-rate {
+    display: inline-block; padding: 2px 7px; border-radius: 6px; font-size: .72rem; font-weight: 800; margin-top: 6px;
+}
+.badge-rate.bargain { background: rgba(229, 62, 62, 0.12); color: var(--danger); }
+.badge-rate.adjust { background: rgba(221, 107, 32, 0.12); color: var(--warning); }
+.badge-rate.high { background: rgba(42, 120, 214, 0.12); color: var(--brand-primary); }
+
 /* 데이터프레임 스타일 */
 div[data-testid="stDataFrame"] {
     border-radius: 12px; overflow: hidden; border: 1px solid var(--border-hairline);
     font-variant-numeric: tabular-nums;
 }
 
-/* 사이드바 */
+/* 사이드바 예산 상세 */
 section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px solid var(--border-hairline); }
 .budget-card {
     background: linear-gradient(135deg, #eef4fd 0%, #f8fbfe 100%);
     border-radius: 12px; padding: 12px 14px; border: 1px solid rgba(42,120,214,0.16);
     margin-top: 6px;
 }
-.budget-row { display: flex; justify-content: space-between; align-items: baseline; font-size: .8rem; padding: 4px 0; color: var(--ink-secondary); }
-.budget-row b { color: var(--ink-primary); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
-.sidebar-note { font-size: .76rem; color: var(--ink-muted); line-height: 1.4; padding: 6px 2px; }
+.budget-row { display: flex; justify-content: space-between; align-items: baseline; font-size: .79rem; padding: 3px 0; color: var(--ink-secondary); }
+.budget-row b { color: var(--ink-primary); font-size: .92rem; font-variant-numeric: tabular-nums; }
+.budget-divider { border-top: 1px dashed rgba(42,120,214,0.22); margin: 6px 0; }
+.sidebar-note { font-size: .75rem; color: var(--ink-muted); line-height: 1.4; padding: 6px 2px; }
 
-/* 📱 모바일 전용 반응형 레이아웃 (스크롤 대폭 축소) */
+/* 📱 모바일 반응형 압축 */
 @media (max-width: 768px) {
     .block-container {
         padding-top: 0.8rem !important;
@@ -140,7 +151,6 @@ section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px
     .hero-banner h1 { font-size: 1.15rem !important; }
     .hero-banner p { font-size: 0.76rem !important; margin-top: 3px !important; }
 
-    /* 4단 필터를 모바일에서 강제로 2x2 (2열 2행)로 압축 */
     div[data-testid="stHorizontalBlock"]:has([data-testid="stSelectbox"]) {
         display: flex !important;
         flex-direction: row !important;
@@ -158,26 +168,18 @@ section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px
         margin-bottom: -10px !important;
     }
 
-    /* KPI 카드를 모바일에서 2x2 그리드로 압축 */
     .kpi-grid-container {
         grid-template-columns: repeat(2, 1fr) !important;
         gap: 6px !important;
         margin: 8px 0 12px !important;
     }
-    .kpi-card {
-        padding: 10px 12px !important;
-        border-radius: 10px !important;
-    }
+    .kpi-card { padding: 10px 12px !important; border-radius: 10px !important; }
     .kpi-label { font-size: 0.72rem !important; }
     .kpi-value { font-size: 1.15rem !important; margin-top: 3px !important; }
     .kpi-sub { font-size: 0.68rem !important; margin-top: 2px !important; }
     .step-chip { font-size: 0.68rem !important; padding: 1px 6px !important; margin-bottom: 1px !important; }
 
-    /* 추천 단지 TOP3 모바일 카드 여백 최적화 */
-    .rank-card {
-        padding: 12px 14px !important;
-        margin-top: 10px !important;
-    }
+    .rank-card { padding: 12px 14px !important; margin-top: 10px !important; }
     .rank-badge { font-size: 1.3rem !important; top: -10px !important; }
     .rank-apt { font-size: 0.92rem !important; }
     .rank-price { font-size: 1.1rem !important; margin-top: 6px !important; }
@@ -187,17 +189,78 @@ section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
+# ── 1-2. 보조 연산 및 부대비용/DSR 함수 (기능 4) ────────────
 def format_price(x: int) -> str:
     """만원 단위 정수를 'N억 N,NNN만' 형식 문자열로 변환."""
     x = int(x)
     return f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만"
 
 
+def calculate_acquisition_costs(price: int) -> dict:
+    """만원 단위 매매가 기준 취득세, 복비, 법무/기타비용 정밀 산출 (기능 4)"""
+    # 1. 취득세 (1주택/무주택 기준 비례세율)
+    if price <= 60000:
+        tax_rate = 0.011  # 취득세 1% + 지방교육세 0.1%
+    elif price <= 90000:
+        tax_rate = (((price * (2 / 30000)) - 3) / 100) * 1.1
+    else:
+        tax_rate = 0.033  # 취득세 3% + 지방교육세 0.3%
+
+    acquisition_tax = int(price * tax_rate)
+
+    # 2. 부동산 중개보수 상한요율
+    if price < 20000:
+        broker_rate = 0.005
+    elif price < 90000:
+        broker_rate = 0.004
+    elif price < 120000:
+        broker_rate = 0.005
+    elif price < 150000:
+        broker_rate = 0.006
+    else:
+        broker_rate = 0.007
+
+    broker_fee = int(price * broker_rate)
+    etc_fee = int(price * 0.004)  # 법무사/채권할인/등기 등
+
+    total_costs = acquisition_tax + broker_fee + etc_fee
+    return {
+        "취득세": acquisition_tax,
+        "중개보수": broker_fee,
+        "기타비용": etc_fee,
+        "총부대비용": total_costs
+    }
+
+
+def calculate_dsr_max_loan(annual_income: int, loan_interest: float, term_years: int) -> int:
+    """연소득 기준 DSR 40% 최대 대출 가능 원금 역산 (만원 단위)"""
+    if annual_income <= 0:
+        return 0
+    max_annual_payment = annual_income * 0.40
+    max_monthly_payment = (max_annual_payment * 10000) / 12
+    monthly_rate = (loan_interest / 100) / 12
+    total_months = term_years * 12
+
+    max_loan = (max_monthly_payment * (((1 + monthly_rate) ** total_months) - 1)) / (
+        monthly_rate * ((1 + monthly_rate) ** total_months)
+    )
+    return int(max_loan // 10000)
+
+
+def get_price_rate_badge(change_rate: float) -> str:
+    """전고점 대비 변동률에 따른 상태 배지 HTML 생성 (기능 1)"""
+    if change_rate <= -20.0:
+        return f'<span class="badge-rate bargain">급매권 ({change_rate:+.1f}%)</span>'
+    elif change_rate <= -8.0:
+        return f'<span class="badge-rate adjust">조정권 ({change_rate:+.1f}%)</span>'
+    elif change_rate < 0.0:
+        return f'<span class="badge-rate high">회복권 ({change_rate:+.1f}%)</span>'
+    else:
+        return '<span class="badge-rate high">신고가/보합</span>'
+
+
 def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFrame:
-    """
-    동일 단지, 동일 월, 동일 면적, 동일 가격으로 대량(threshold건 이상) 신고된
-    공공 매입임대/통매매 이상치 데이터를 필터링합니다.
-    """
+    """동일 단지/월/면적/가격 10건 이상 통매입/임대 이상치 필터링"""
     if df.empty:
         return df
     duplicate_counts = df.groupby(['apt', 'month', 'area', 'price'])['price'].transform('count')
@@ -205,7 +268,7 @@ def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFr
     return cleaned_df
 
 
-# ── 2. 기본 설정, 세션 풀 및 한국 표준시(KST) 방문자 집계 ───────
+# ── 2. 기본 설정, 세션 풀 및 방문자 집계 ──────────────────
 DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
 ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
@@ -219,7 +282,6 @@ def get_visitor_storage():
     }
 
 visitor_storage = get_visitor_storage()
-
 now_kst = datetime.now(KST)
 today_key = now_kst.strftime("%Y-%m-%d")
 
@@ -424,7 +486,7 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
 
     return pd.DataFrame(all_records)
 
-# ── 5. 사이드바 설정 (관리자 모드 최상단 배치) ──────────────
+# ── 5. 사이드바 설정 (고도화 계산기 + 관리자 모드) ─────────────
 st.sidebar.markdown("### ⚙️ 대시보드 설정")
 
 with st.sidebar.expander("🔒 관리자 모드 (방문자 확인)", expanded=False):
@@ -473,6 +535,7 @@ filter_bulk_option = st.sidebar.checkbox(
 
 st.sidebar.markdown("---")
 
+# 네이버식 면적 필터
 st.sidebar.markdown("### 📐 전용면적 필터")
 area_unit = st.sidebar.radio("면적 단위", ["평", "㎡"], index=0, horizontal=True)
 
@@ -519,11 +582,12 @@ else:
 
 st.sidebar.markdown("---")
 
-calc_enabled = st.sidebar.toggle("🪙 내 자본금 맞춤 계산기 활성화", value=False)
+# ── [고도화된 내집마련/DSR/부대비용 계산기 (기능 4)] ─────────
+calc_enabled = st.sidebar.toggle("🪙 정밀 자본금 & DSR 계산기 활성화", value=False)
 
 if calc_enabled:
     my_capital = st.sidebar.number_input(
-        "내 보유 현금/자본금 (만원)",
+        "내 보유 순수 자본금 (만원)",
         min_value=1000,
         max_value=500000,
         value=30000,
@@ -531,23 +595,54 @@ if calc_enabled:
         help="부동산 매수에 투입 가능한 순수 자기자본입니다."
     )
 
+    use_dsr = st.sidebar.checkbox("📊 DSR 40% 한도 역산 적용", value=True)
+    if use_dsr:
+        annual_income = st.sidebar.number_input(
+            "본인/부부합산 연소득 (만원)",
+            min_value=1000,
+            max_value=30000,
+            value=7000,
+            step=500,
+            help="DSR 40% 기준 연간 원리금 상환 한도를 계산합니다."
+        )
+    else:
+        annual_income = 0
+
     ltv_rate = st.sidebar.slider("희망 대출 비율 (LTV %)", min_value=0, max_value=80, value=70, step=5)
     loan_interest = st.sidebar.slider("대출 예상 금리 (%)", min_value=2.0, max_value=8.0, value=4.0, step=0.1)
     loan_term_years = st.sidebar.selectbox("대출 만기 (년)", [10, 20, 30, 40], index=2)
 
-    effective_capital = my_capital * 0.97
-
-    if ltv_rate < 100:
-        max_affordable_price = int(effective_capital / (1 - (ltv_rate / 100)))
+    # 1. DSR 40% 대출 가능액 계산
+    if use_dsr and annual_income > 0:
+        dsr_max_loan = calculate_dsr_max_loan(annual_income, loan_interest, loan_term_years)
     else:
-        max_affordable_price = int(effective_capital * 2)
+        dsr_max_loan = 9999999
 
-    max_loan_amount = max_affordable_price - my_capital
-    if max_loan_amount > 0:
+    # 2. 부대비용을 감안한 최대 매수가 역산 (근사치 반복 계산)
+    temp_price = int(my_capital / (1 - (ltv_rate / 100) + 0.035)) if ltv_rate < 100 else my_capital * 2
+    for _ in range(3):
+        costs = calculate_acquisition_costs(temp_price)
+        avail_capital = my_capital - costs['총부대비용']
+        if ltv_rate < 100:
+            ltv_price = int(avail_capital / (1 - (ltv_rate / 100)))
+        else:
+            ltv_price = avail_capital * 2
+        temp_price = max(1000, ltv_price)
+
+    # DSR 한도와 LTV 한도 중 작은 금액 적용
+    ltv_loan = temp_price - (my_capital - calculate_acquisition_costs(temp_price)['총부대비용'])
+    actual_loan_amount = min(ltv_loan, dsr_max_loan)
+    actual_loan_amount = max(0, actual_loan_amount)
+
+    final_costs = calculate_acquisition_costs(temp_price)
+    max_affordable_price = (my_capital - final_costs['총부대비용']) + actual_loan_amount
+
+    # 월 원리금 계산
+    if actual_loan_amount > 0:
         monthly_rate = (loan_interest / 100) / 12
         total_months = loan_term_years * 12
         monthly_payment = int(
-            (max_loan_amount * 10000 * monthly_rate * ((1 + monthly_rate) ** total_months))
+            (actual_loan_amount * 10000 * monthly_rate * ((1 + monthly_rate) ** total_months))
             / (((1 + monthly_rate) ** total_months) - 1)
         )
     else:
@@ -556,8 +651,13 @@ if calc_enabled:
     st.sidebar.markdown(f"""
     <div class="budget-card">
       <div class="budget-row"><span>💵 최대 매수 가능가</span><b>{format_price(max_affordable_price)}원</b></div>
-      <div class="budget-row"><span>💳 필요 대출금액</span><b>{format_price(max_loan_amount)}원</b></div>
+      <div class="budget-row"><span>💳 필요 대출금액</span><b>{format_price(actual_loan_amount)}원</b></div>
       <div class="budget-row"><span>🏦 월 예상 원리금</span><b>{monthly_payment // 10000:,}만원 / 월</b></div>
+      <div class="budget-divider"></div>
+      <div class="budget-row"><span>💸 예상 부대비용 합계</span><b>{format_price(final_costs['총부대비용'])}원</b></div>
+      <div class="budget-row" style="font-size:0.72rem; color:var(--ink-muted);">
+        <span>└ 취득세 {final_costs['취득세']:,}만 · 복비 {final_costs['중개보수']:,}만</span>
+      </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -565,16 +665,16 @@ if calc_enabled:
 else:
     my_capital = 0
     max_affordable_price = None
-    max_loan_amount = 0
+    actual_loan_amount = 0
     monthly_payment = 0
+    final_costs = {"총부대비용": 0}
     filter_by_budget = False
     st.sidebar.markdown(
-        '<div class="sidebar-note">계산기를 켜면 보유 자본금 기준 최대 매수가·월 원리금을 계산하고, '
-        '예산 이하 단지만 걸러서 볼 수 있어요.</div>',
+        '<div class="sidebar-note">계산기를 켜면 보유 자본금 기준 최대 매수가·월 원리금과 취득세·복비를 정밀 계산합니다.</div>',
         unsafe_allow_html=True
     )
 
-# ── 6. 메인 UI 및 계층형 지역 필터 (모바일 2x2 반응형 배치) ───
+# ── 6. 메인 UI 및 계층형 지역 필터 ────────────────────────
 st.markdown("""
 <div class="hero-banner">
   <h1>🏠 전국 아파트 실거래가 및 내집마련 대시보드</h1>
@@ -696,7 +796,7 @@ else:
     affordable_df = view_df
     dong_rank_source = df
 
-# ── 7. 요약 통계 (CSS Grid 기반 4열 PC / 2x2 모바일 압축) ────
+# ── 7. 요약 통계 KPI 카드 ─────────────────────────────────
 match_pct = (len(affordable_df) / len(view_df) * 100) if len(view_df) > 0 else 0
 
 if calc_enabled:
@@ -705,12 +805,12 @@ if calc_enabled:
         <div class="kpi-card">
             <div class="kpi-label">💵 최대 매수가</div>
             <div class="kpi-value accent">{format_price(max_affordable_price)}</div>
-            <div class="kpi-sub muted">자본금 {my_capital:,}만 · LTV {ltv_rate}%</div>
+            <div class="kpi-sub muted">부대비용 {final_costs['총부대비용']:,}만 차감 반영</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">💳 필요 대출금</div>
-            <div class="kpi-value">{format_price(max_loan_amount)}</div>
-            <div class="kpi-sub muted">금리 {loan_interest:.1f}% · {loan_term_years}년 만기</div>
+            <div class="kpi-value">{format_price(actual_loan_amount)}</div>
+            <div class="kpi-sub muted">LTV {ltv_rate}% · DSR 40% 한도 적용</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">🎯 매수 가능 거래</div>
@@ -720,7 +820,7 @@ if calc_enabled:
         <div class="kpi-card">
             <div class="kpi-label">🏦 월 예상 원리금</div>
             <div class="kpi-value primary">{monthly_payment // 10000:,}만원</div>
-            <div class="kpi-sub muted">원리금 균등분할 기준</div>
+            <div class="kpi-sub muted">금리 {loan_interest:.1f}% · {loan_term_years}년 만기</div>
         </div>
     </div>
     """
@@ -743,7 +843,7 @@ else:
         <div class="kpi-card">
             <div class="kpi-label">🏆 최고 실거래가</div>
             <div class="kpi-value">{format_price(max_price)}</div>
-            <div class="kpi-sub muted">최근 6개월~ 기준</div>
+            <div class="kpi-sub muted">조회 기간 내 최고가</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">🏘️ 거래 단지 수</div>
@@ -808,7 +908,7 @@ with c2:
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-# ── 9. 추천 단지 TOP 15 ──────────────────────────────────
+# ── 9. 추천 단지 TOP 15 (전고점 대비 하락률/상태 배지 반영) ────
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -820,12 +920,17 @@ else:
 if affordable_df.empty:
     st.info("현재 설정된 조건(면적/예산/이상치 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
 else:
+    # 단지별 집계 (최근 거래건수, 평균가, 최고가 산출)
     apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt']).agg(
         거래건수=('price', 'count'),
         평균실거래가=('price', 'mean'),
         최근최고가=('price', 'max'),
         전용면적_평균=('area', 'mean')
     ).reset_index()
+
+    # 전고점(최고가) 대비 하락률 계산 (기능 1)
+    apt_rank['변동률'] = ((apt_rank['평균실거래가'] - apt_rank['최근최고가']) / apt_rank['최근최고가']) * 100
+    apt_rank['상태배지'] = apt_rank['변동률'].apply(get_price_rate_badge)
 
     apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(15).reset_index(drop=True)
 
@@ -840,20 +945,36 @@ else:
         for i, (_, row) in enumerate(top3.iterrows()):
             apt_name = html.escape(str(row['apt']))
             loc_txt = html.escape(f"{row['city']} {row['gu']} {row['dong']} · {row['전용면적_평형']}")
+            rate_badge_html = row['상태배지']
+
             with top_cols[i]:
                 st.markdown(f"""<div class="rank-card">
                     <div class="rank-badge">{medals[i]}</div>
                     <div class="rank-apt">{apt_name}</div>
                     <div class="rank-loc">{loc_txt}</div>
+                    <div>{rate_badge_html}</div>
                     <div class="rank-price">{row['평균실거래가_fmt']}원</div>
                     <div class="rank-meta">거래 {row['거래건수']}건 · 최고가 {row['최근최고가_fmt']}원</div>
                 </div>""", unsafe_allow_html=True)
         st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
+    # 4위 이하 단지 표
     rest = apt_rank.iloc[3:].copy()
     if not rest.empty:
-        rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '평균실거래가_fmt', '최근최고가_fmt']].copy()
-        rest_display.columns = ['시·군', '구', '법정동(읍·면)', '단지명', '평균 면적', '거래건수', '평균 실거래가', '최근 최고가']
+        # 상태 텍스트 포맷팅
+        def format_status_text(val):
+            if val <= -20:
+                return f"급매 ({val:.1f}%)"
+            elif val <= -8:
+                return f"조정 ({val:.1f}%)"
+            elif val < 0:
+                return f"회복 ({val:.1f}%)"
+            else:
+                return "신고가"
+
+        rest['전고점대비'] = rest['변동률'].apply(format_status_text)
+        rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '평균실거래가_fmt', '최근최고가_fmt', '전고점대비']].copy()
+        rest_display.columns = ['시·군', '구', '법정동(읍·면)', '단지명', '평균 면적', '거래건수', '평균 실거래가', '최고가', '전고점대비 상태']
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
         st.dataframe(
