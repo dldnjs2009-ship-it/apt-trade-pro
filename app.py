@@ -356,14 +356,36 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
 
     return pd.DataFrame(all_records)
 
-# ── 5. 사이드바 설정 (필터, 계산기, 관리자 모드) ─────────────
+# ── 5. 사이드바 설정 (관리자 모드 최상단 배치) ──────────────
 st.sidebar.markdown("### ⚙️ 대시보드 설정")
+
+# [1] 관리자 모드 (사이드바 최상단에 배치하여 100% 즉시 노출)
+with st.sidebar.expander("🔒 관리자 모드 (방문자 확인)", expanded=False):
+    admin_password = st.text_input("비밀번호 입력", type="password", key="admin_auth_pwd")
+    ADMIN_SECRET_KEY = "7576"
+
+    if admin_password == ADMIN_SECRET_KEY:
+        st.success("인증 완료")
+        today_visitors = visitor_storage["daily"].get(today_key, 0)
+        total_visitors = visitor_storage["total"]
+
+        adm_col1, adm_col2 = st.columns(2)
+        adm_col1.metric("오늘 방문자", f"{today_visitors:,}명")
+        adm_col2.metric("누적 방문자", f"{total_visitors:,}명")
+
+        if visitor_storage["logs"]:
+            today_logs = [log for log in visitor_storage["logs"] if log["date"] == today_key]
+            st.caption(f"최근 접속 기록: {today_logs[-1]['time'] if today_logs else '-'}")
+    elif admin_password:
+        st.error("비밀번호가 일치하지 않습니다.")
+
+st.sidebar.markdown("---")
 
 if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
-# [1] 조회 기간 선택
+# [2] 조회 기간 선택
 period_option = st.sidebar.selectbox(
     "📅 조회 기간 선택",
     ["최근 6개월 (실시간)", "최근 12개월 (1년)", "2024년 전체"],
@@ -378,7 +400,7 @@ elif period_option == "최근 12개월 (1년)":
 else:
     target_months = [f"2024{m:02d}" for m in range(1, 13)]
 
-# [2] 통매입 필터
+# [3] 통매입 필터
 filter_bulk_option = st.sidebar.checkbox(
     "🚫 통매입/임대 대량 일괄거래 제외",
     value=True,
@@ -387,7 +409,7 @@ filter_bulk_option = st.sidebar.checkbox(
 
 st.sidebar.markdown("---")
 
-# [3] 네이버 부동산식 면적 필터
+# [4] 네이버 부동산식 면적 필터
 st.sidebar.markdown("### 📐 전용면적 필터")
 area_unit = st.sidebar.radio("면적 단위", ["평", "㎡"], index=0, horizontal=True)
 
@@ -434,7 +456,7 @@ else:
 
 st.sidebar.markdown("---")
 
-# [4] 내 자본금 맞춤 계산기
+# [5] 내 자본금 맞춤 계산기
 calc_enabled = st.sidebar.toggle("🪙 내 자본금 맞춤 계산기 활성화", value=False)
 
 if calc_enabled:
@@ -490,28 +512,6 @@ else:
         unsafe_allow_html=True
     )
 
-st.sidebar.markdown("---")
-
-# [5] 관리자 모드 (사이드바에 즉시 렌더링)
-st.sidebar.markdown("### 🔒 관리자 메뉴")
-admin_password = st.sidebar.text_input("관리자 비밀번호", type="password", key="admin_auth_pwd")
-ADMIN_SECRET_KEY = "7576"
-
-if admin_password == ADMIN_SECRET_KEY:
-    st.sidebar.success("관리자 인증 완료")
-    today_visitors = visitor_storage["daily"].get(today_key, 0)
-    total_visitors = visitor_storage["total"]
-
-    st.sidebar.metric("오늘 방문자", f"{today_visitors:,}명")
-    st.sidebar.metric("누적 방문자", f"{total_visitors:,}명")
-
-    if visitor_storage["logs"]:
-        today_logs = [log for log in visitor_storage["logs"] if log["date"] == today_key]
-        st.sidebar.caption(f"최근 접속 기록: {today_logs[-1]['time'] if today_logs else '-'}")
-elif admin_password:
-    st.sidebar.error("비밀번호가 일치하지 않습니다.")
-
-
 # ── 6. 메인 UI 및 계층형 지역 필터 ────────────────────────
 st.markdown("""
 <div class="hero-banner">
@@ -537,7 +537,7 @@ if selected_sido == "경기도":
     with col2:
         st.markdown('<div class="step-chip">2️⃣ 시·군</div>', unsafe_allow_html=True)
         city_options = ["경기도 전체"] + list(sido_data.keys())
-        default_city_idx = city_options.index("성남시") if "성남시" in city_options else 1
+        default_city_idx = city_options.index("수원시") if "수원시" in city_options else 1
         selected_city = st.selectbox("시·군", city_options, index=default_city_idx, label_visibility="collapsed")
 
     if selected_city == "경기도 전체":
