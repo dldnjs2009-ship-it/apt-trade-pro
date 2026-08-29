@@ -439,7 +439,7 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
         for item in items:
             r = {child.tag: (child.text.strip() if child.text else '') for child in item}
             
-            # 취소 거래 배제
+            # 취소 거래 원천 배제
             if r.get('cdealType', '') == 'O' or r.get('cdealDay', '') != '':
                 continue
 
@@ -935,7 +935,7 @@ with c2:
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-# ── 9. 추천 단지 TOP 15 (조회기간 최고가 대비 명확화) ──────────
+# ── 9. 추천 단지 TOP 15 (단지별 실제 마지막 거래일 기준 정밀 집계) ─
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -947,23 +947,28 @@ else:
 if affordable_df.empty:
     st.info("현재 설정된 조건(면적/예산 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
 else:
-    recent_two_months = sorted(list(affordable_df['month'].unique()))[-2:]
-
     def aggregate_apt_metrics(group):
         total_count = len(group)
         max_price_val = group['price'].max()
         mean_area = group['area'].mean()
         
-        # 가격 계산 시에만 저층(1~3층) 및 직거래를 제외하여 로열층 실거래가 산출
+        # 1. 가격 계산 시 저층(1~3층) 및 직거래 제외
         clean_group = group[(group['floor'] > 3) & (group['deal_type'] != '직거래')]
         if clean_group.empty:
             clean_group = group
 
-        recent_deals = clean_group[clean_group['month'].isin(recent_two_months)]
-        if not recent_deals.empty:
+        # 2. 단지별 실제 마지막 거래 월 기준 평균 산출
+        latest_month_of_apt = clean_group['month'].max()
+        latest_deals = clean_group[clean_group['month'] == latest_month_of_apt]
+        
+        # 최근 월 거래가 3건 미만이면 최근 2개 월 거래까지 합산하여 안정적인 최근 시세 반영
+        if len(latest_deals) < 3:
+            apt_months = sorted(list(clean_group['month'].unique()))
+            recent_apt_months = apt_months[-2:] if len(apt_months) >= 2 else apt_months
+            recent_deals = clean_group[clean_group['month'].isin(recent_apt_months)]
             recent_mean = recent_deals['price'].mean()
         else:
-            recent_mean = clean_group['price'].mean()
+            recent_mean = latest_deals['price'].mean()
             
         return pd.Series({
             '거래건수': total_count,
