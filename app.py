@@ -125,12 +125,27 @@ def format_price(x: int) -> str:
     return f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만"
 
 
-# ── 2. 기본 설정 및 균형화된 HTTP 세션 풀 ─────────────────
+def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFrame:
+    """
+    동일 단지, 동일 월, 동일 면적, 동일 가격으로 대량(threshold건 이상) 신고된
+    공공 매입임대/통매매 이상치 데이터를 안전하게 필터링합니다.
+    """
+    if df.empty:
+        return df
+
+    # 단지 + 계약월 + 전용면적 + 매매가격 기준 동시 발생 건수 계산
+    duplicate_counts = df.groupby(['apt', 'month', 'area', 'price'])['price'].transform('count')
+    
+    # 임계치 미만의 일반 거래만 유지
+    cleaned_df = df[duplicate_counts < threshold].copy()
+    return cleaned_df
+
+
+# ── 2. 기본 설정 및 고속 HTTP 세션 풀 ─────────────────────
 DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
 ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
 BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
 
-# 안정성 중심 HTTP 세션: 재시도 3회, 지수 백오프 적용
 @st.cache_resource
 def get_http_session():
     session = requests.Session()
@@ -222,7 +237,7 @@ REGION_STRUCTURE = {
     }
 }
 
-# ── 3. 단일 월 고속 안정 수집 태스크 (타임아웃 12초 균형) ──
+# ── 3. 단일 월 수집 태스크 ────────────────────────────────
 def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
     task_records = []
     page = 1
@@ -237,13 +252,11 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
         }
 
         res = None
-        # 1차 호출 (안정적 타임아웃 12초 설정)
         try:
             res = HTTP_SESSION.get(BASE_URL, params=params, timeout=12)
         except Exception:
             pass
 
-        # 2차 호출 (실패 시 URL 인코딩 직접 결합)
         if res is None or res.status_code != 200 or '<item>' not in res.text:
             fallback_url = f"{BASE_URL}?serviceKey={ENCODING_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=1000&pageNo={page}"
             try:
@@ -300,7 +313,7 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
 
     return task_records
 
-# ── 4. 안정적인 10개 스레드 병렬 분산 수집 & 24시간 캐싱 ──
+# ── 4. 병렬 분산 수집 & 캐싱 ──────────────────────────────
 @st.cache_data(ttl=86400)
 def fetch_target_records(target_list_tuples, target_months_tuple):
     tasks = []
@@ -313,7 +326,6 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
                 tasks.append((code, deal_ymd, sido, city, gu))
 
     all_records = []
-    # WAF 차단 방지 및 Streamlit 메모리 안정성을 위해 스레드 수를 10개로 최적화
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = [executor.submit(fetch_single_month_task, *task) for task in tasks]
         for future in as_completed(futures):
@@ -326,13 +338,14 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
 
     return pd.DataFrame(all_records)
 
-# ── 5. 사이드바 설정 및 예산 계산기 ────────────────────────
+# ── 5. 사이드바 설정 (기간, 통매입 필터, 면적, 예산) ───────────
 st.sidebar.markdown("### ⚙️ 대시보드 설정")
 
 if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
+# [1] 조회 기간 선택
 period_option = st.sidebar.selectbox(
     "📅 조회 기간 선택",
     ["최근 6개월 (실시간)", "최근 12개월 (1년)", "2024년 전체"],
@@ -347,8 +360,40 @@ elif period_option == "최근 12개월 (1년)":
 else:
     target_months = [f"2024{m:02d}" for m in range(1, 13)]
 
+# [2] 임대/통매입 대량 일괄 거래 제거 필터
+filter_bulk_option = st.sidebar.checkbox(
+    "🚫 통매입/임대 대량 일괄거래 제외",
+    value=True,
+    help="동일 단지·월·면적·가격으로 10건 이상 동시 등록된 공공 매입임대/통매매 이상치를 제거합니다."
+)
+
+# [3] 전용면적(평형) 필터
+area_filter_option = st.sidebar.selectbox(
+    "📐 전용면적(평형) 필터",
+    [
+        "전체 평형 보기",
+        "초소형/원룸 제외 (전용 30㎡ / 약 9평 이상)",
+        "소형 이상 (전용 40㎡ / 약 12평 이상)",
+        "20평대 이상 (전용 59㎡ / 약 18평 이상)",
+        "국민평형 이상 (전용 84㎡ / 약 25평 이상)"
+    ],
+    index=1,
+    help="도시형생활주택이나 청년 매입임대 등 원룸형 단지 왜곡을 방지하기 위해 기본으로 30㎡ 이상이 설정되어 있습니다."
+)
+
+if area_filter_option == "초소형/원룸 제외 (전용 30㎡ / 약 9평 이상)":
+    min_area_val = 30.0
+elif area_filter_option == "소형 이상 (전용 40㎡ / 약 12평 이상)":
+    min_area_val = 40.0
+elif area_filter_option == "20평대 이상 (전용 59㎡ / 약 18평 이상)":
+    min_area_val = 59.0
+elif area_filter_option == "국민평형 이상 (전용 84㎡ / 약 25평 이상)":
+    min_area_val = 84.0
+else:
+    min_area_val = 0.0
+
 st.sidebar.markdown("---")
-calc_enabled = st.sidebar.toggle("🪙 내 자본금 맞춤 계산기 활성화", value=True)
+calc_enabled = st.sidebar.toggle("🪙 내 자본금 맞춤 계산기 활성화", value=False)
 
 if calc_enabled:
     my_capital = st.sidebar.number_input(
@@ -476,12 +521,20 @@ else:
 scope_name = selected_city if selected_sido == "경기도" else selected_gu_direct
 
 with st.spinner(f"'{selected_sido} {scope_name} ({selected_gu if selected_sido == '경기도' else ''})' 실거래 데이터를 조회 중입니다..."):
-    df = fetch_target_records(tuple(target_codes_to_fetch), tuple(target_months))
+    raw_df = fetch_target_records(tuple(target_codes_to_fetch), tuple(target_months))
 
-if df.empty:
+if raw_df.empty:
     st.cache_data.clear()
     st.warning("국토교통부 API 서버 응답이 지연되었습니다. 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러주세요.")
     st.stop()
+
+# ── [데이터 정제: 1. 통매입/일괄거래 제거 -> 2. 전용면적 필터링] ──
+df = raw_df.copy()
+if filter_bulk_option:
+    df = remove_bulk_acquisitions(df, threshold=10)
+
+if min_area_val > 0:
+    df = df[df['area'] >= min_area_val].copy()
 
 with col4:
     st.markdown('<div class="step-chip">4️⃣ 읍·면·동</div>', unsafe_allow_html=True)
@@ -593,7 +646,6 @@ with c2:
         f'<div class="section-title">🥇 {selected_gu if selected_sido == "경기도" else scope_name} 동별 거래량 순위</div>',
         unsafe_allow_html=True
     )
-    # dong_rank_source를 사용하여 특정 동을 선택해도 시·구 전체 동 순위 유지
     rank_df = dong_rank_source.groupby(['city', 'gu', 'dong']).size().reset_index(name='거래건수')
     rank_df = rank_df.sort_values(by='거래건수', ascending=False)
     rank_df.columns = ['시·군', '구', '동·읍·면명', '거래건수']
@@ -621,7 +673,7 @@ else:
     st.markdown(f'<div class="section-title">🏆 {display_title} 실거래 인기 단지 TOP 15</div>', unsafe_allow_html=True)
 
 if affordable_df.empty:
-    st.info("현재 설정된 예산으로 매수 가능한 실거래 아파트가 없습니다. 자본금이나 LTV 비율을 올려보세요.")
+    st.info("현재 설정된 조건(면적/예산/이상치 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
 else:
     apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt']).agg(
         거래건수=('price', 'count'),
