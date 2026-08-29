@@ -25,9 +25,6 @@ REGION_STRUCTURE = {
         "성남시": {"분당구": "41135", "수정구": "41131", "중원구": "41133"},
         "수원시": {"영통구": "41117", "장안구": "41111", "권선구": "41113", "팔달구": "41115"},
         "용인시": {"수지구": "41465", "기흥구": "41463", "처인구": "41461"},
-        # 2026-02-01부로 화성시가 만세구·효행구·병점구·동탄구 4개 일반구 체제로 개편되면서
-        # 기존 화성시 통합 코드(41590)로는 실거래가 API가 더 이상 데이터를 반환하지 않음.
-        # 신설된 구별 코드로 교체 (수원시/성남시 등과 동일한 다구 시 구조로 처리).
         "화성시": {
             "만세구": "41591",
             "효행구": "41593",
@@ -202,7 +199,7 @@ def fetch_target_records(target_list_tuples, target_months_tuple):
     return pd.DataFrame(all_records)
 
 # ── 3. 사이드바 설정 및 예산 계산기 ────────────────────────
-st.sidebar.header("⚙️ 데이터 및 예산 설정")
+st.sidebar.header("⚙️ 대시보드 설정")
 
 if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기"):
     st.cache_data.clear()
@@ -223,49 +220,57 @@ else:
     target_months = [f"2024{m:02d}" for m in range(1, 13)]
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("💰 내 자본금 맞춤 계산기")
 
-my_capital = st.sidebar.number_input(
-    "내 보유 현금/자본금 (만원)",
-    min_value=1000,
-    max_value=500000,
-    value=30000,
-    step=1000,
-    help="부동산 매수에 투입 가능한 순수 자기자본입니다."
-)
+# ── [ON / OFF 모드 토글 스위치] ──
+use_budget_calc = st.sidebar.toggle("💰 내 자본금 맞춤 계산기 활성화", value=False)
 
-ltv_rate = st.sidebar.slider("희망 대출 비율 (LTV %)", min_value=0, max_value=80, value=70, step=5)
-loan_interest = st.sidebar.slider("대출 예상 금리 (%)", min_value=2.0, max_value=8.0, value=4.0, step=0.1)
-loan_term_years = st.sidebar.selectbox("대출 만기 (년)", [10, 20, 30, 40], index=2)
-
-effective_capital = my_capital * 0.97
-
-if ltv_rate < 100:
-    max_affordable_price = int(effective_capital / (1 - (ltv_rate / 100)))
-else:
-    max_affordable_price = int(effective_capital * 2)
-
-max_loan_amount = max_affordable_price - my_capital
-if max_loan_amount > 0:
-    monthly_rate = (loan_interest / 100) / 12
-    total_months = loan_term_years * 12
-    monthly_payment = int(
-        (max_loan_amount * 10000 * monthly_rate * ((1 + monthly_rate) ** total_months))
-        / (((1 + monthly_rate) ** total_months) - 1)
+if use_budget_calc:
+    my_capital = st.sidebar.number_input(
+        "내 보유 현금/자본금 (만원)",
+        min_value=1000,
+        max_value=500000,
+        value=30000,
+        step=1000,
+        help="부동산 매수에 투입 가능한 순수 자기자본입니다."
     )
+
+    ltv_rate = st.sidebar.slider("희망 대출 비율 (LTV %)", min_value=0, max_value=80, value=70, step=5)
+    loan_interest = st.sidebar.slider("대출 예상 금리 (%)", min_value=2.0, max_value=8.0, value=4.0, step=0.1)
+    loan_term_years = st.sidebar.selectbox("대출 만기 (년)", [10, 20, 30, 40], index=2)
+
+    effective_capital = my_capital * 0.97
+
+    if ltv_rate < 100:
+        max_affordable_price = int(effective_capital / (1 - (ltv_rate / 100)))
+    else:
+        max_affordable_price = int(effective_capital * 2)
+
+    max_loan_amount = max_affordable_price - my_capital
+    if max_loan_amount > 0:
+        monthly_rate = (loan_interest / 100) / 12
+        total_months = loan_term_years * 12
+        monthly_payment = int(
+            (max_loan_amount * 10000 * monthly_rate * ((1 + monthly_rate) ** total_months))
+            / (((1 + monthly_rate) ** total_months) - 1)
+        )
+    else:
+        monthly_payment = 0
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📋 내 예산 분석 결과")
+    st.sidebar.write(f"• **최대 매수 가능가:** **{max_affordable_price // 10000}억 {(max_affordable_price % 10000):,}만원**")
+    st.sidebar.write(f"• **필요 대출금액:** {max_loan_amount // 10000}억 {(max_loan_amount % 10000):,}만원")
+    st.sidebar.write(f"• **월 예상 원리금:** **{monthly_payment // 10000:,}만원** / 월")
+
+    filter_by_budget = st.sidebar.checkbox("🎯 내 예산 이하 단지만 필터링", value=True)
 else:
+    filter_by_budget = False
+    max_affordable_price = 0
+    max_loan_amount = 0
     monthly_payment = 0
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("📋 내 예산 분석 결과")
-st.sidebar.write(f"• **최대 매수 가능가:** **{max_affordable_price // 10000}억 {(max_affordable_price % 10000):,}만원**")
-st.sidebar.write(f"• **필요 대출금액:** {max_loan_amount // 10000}억 {(max_loan_amount % 10000):,}만원")
-st.sidebar.write(f"• **월 예상 원리금:** **{monthly_payment // 10000:,}만원** / 월")
-
-filter_by_budget = st.sidebar.checkbox("🎯 내 예산 이하 단지만 필터링", value=True)
-
 # ── 4. 메인 UI 및 계층형 지역 필터 ────────────────────────
-st.title("📊 전국 아파트 실거래가 및 내집마련 대시보드")
+st.title("📊 전국 아파트 실거래가 및 거래량 대시보드")
 st.caption("국토교통부 실거래가 오픈 API 실시간 연동 (시/구 전체 통합 집계 및 맞춤 추천)")
 
 col1, col2, col3, col4 = st.columns(4)
@@ -280,7 +285,7 @@ target_codes_to_fetch = []
 if selected_sido == "경기도":
     with col2:
         city_options = ["경기도 전체"] + list(sido_data.keys())
-        default_city_idx = city_options.index("성남시") if "성남시" in city_options else 1
+        default_city_idx = city_options.index("화성시") if "화성시" in city_options else 1
         selected_city = st.selectbox("2️⃣ 시·군", city_options, index=default_city_idx)
 
     if selected_city == "경기도 전체":
@@ -337,21 +342,33 @@ with col4:
 
 view_df = df if selected_dong == '전체 보기' else df[df['dong'] == selected_dong]
 
-if filter_by_budget:
-    affordable_df = view_df[view_df['price'] <= max_affordable_price]
+# 예산 맞춤 모드 적용 여부
+if use_budget_calc and filter_by_budget:
+    display_df = view_df[view_df['price'] <= max_affordable_price]
 else:
-    affordable_df = view_df
+    display_df = view_df
 
-# ── 5. 요약 통계 및 시각화 ─────────────────────────────────
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("💵 최대 매수가", f"{max_affordable_price // 10000}억 {max_affordable_price % 10000:,}만")
-m2.metric("💳 필요 대출금", f"{max_loan_amount // 10000}억 {max_loan_amount % 10000:,}만")
-match_pct = (len(affordable_df) / len(view_df) * 100) if len(view_df) > 0 else 0
-m3.metric("🎯 매수 가능 거래", f"{len(affordable_df):,}건", f"전체 {len(view_df):,}건 중 {match_pct:.1f}%")
-m4.metric("🏦 월 예상 원리금", f"{monthly_payment // 10000:,}만원")
+# ── 5. 요약 통계 메트릭 (모드별 동적 전환) ─────────────────
+if use_budget_calc:
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("💵 최대 매수가", f"{max_affordable_price // 10000}억 {max_affordable_price % 10000:,}만")
+    m2.metric("💳 필요 대출금", f"{max_loan_amount // 10000}억 {max_loan_amount % 10000:,}만")
+    match_pct = (len(display_df) / len(view_df) * 100) if len(view_df) > 0 else 0
+    m3.metric("🎯 매수 가능 거래", f"{len(display_df):,}건", f"전체 {len(view_df):,}건 중 {match_pct:.1f}%")
+    m4.metric("🏦 월 예상 원리금", f"{monthly_payment // 10000:,}만원")
+else:
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("📦 선택 구역 총 거래량", f"{len(display_df):,}건")
+    avg_price = int(display_df['price'].mean()) if not display_df.empty else 0
+    max_price = int(display_df['price'].max()) if not display_df.empty else 0
+    dong_count = len(display_df['dong'].unique()) if not display_df.empty else 0
+    m2.metric("💰 평균 실거래가", f"{avg_price // 10000}억 {avg_price % 10000:,}만" if avg_price >= 10000 else f"{avg_price:,}만")
+    m3.metric("🔝 최고 실거래가", f"{max_price // 10000}억 {max_price % 10000:,}만" if max_price >= 10000 else f"{max_price:,}만")
+    m4.metric("🏢 거래 법정동 수", f"{dong_count:,}개 구역")
 
 st.divider()
 
+# ── 6. 월별 거래량 추이 및 동별 순위표 ───────────────────
 c1, c2 = st.columns([3, 2])
 
 display_title = f"{selected_sido} {scope_name}"
@@ -362,12 +379,12 @@ if selected_dong != '전체 보기':
 
 with c1:
     st.subheader(f"📈 {display_title} 월별 거래량 추이")
-    monthly_series = affordable_df['month'].value_counts().sort_index()
+    monthly_series = display_df['month'].value_counts().sort_index()
     st.bar_chart(monthly_series)
 
 with c2:
     st.subheader(f"🥇 {selected_gu if selected_sido == '경기도' else scope_name} 동별 거래량 순위")
-    rank_df = affordable_df.groupby(['city', 'gu', 'dong']).size().reset_index(name='거래건수')
+    rank_df = display_df.groupby(['city', 'gu', 'dong']).size().reset_index(name='거래건수')
     rank_df = rank_df.sort_values(by='거래건수', ascending=False)
     rank_df.columns = ['시·군', '구', '동·읍·면명', '거래건수']
     rank_df.index = range(1, len(rank_df) + 1)
@@ -375,12 +392,16 @@ with c2:
 
 st.divider()
 
-st.subheader(f"🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15")
-
-if affordable_df.empty:
-    st.info("현재 설정된 예산으로 매수 가능한 실거래 아파트가 없습니다. 자본금이나 LTV 비율을 올려보세요.")
+# ── 7. 주요 아파트 단지 순위표 (TOP 15) ───────────────────
+if use_budget_calc and filter_by_budget:
+    st.subheader(f"🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15")
 else:
-    apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt']).agg(
+    st.subheader(f"🏆 {display_title} 주요 아파트 단지 거래 순위 (TOP 15)")
+
+if display_df.empty:
+    st.info("조건에 일치하는 실거래 아파트 내역이 없습니다.")
+else:
+    apt_rank = display_df.groupby(['city', 'gu', 'dong', 'apt']).agg(
         거래건수=('price', 'count'),
         평균실거래가=('price', 'mean'),
         최근최고가=('price', 'max'),
