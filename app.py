@@ -365,6 +365,20 @@ def get_http_session():
 
 HTTP_SESSION = get_http_session()
 
+# ─────────────────────────────────────────────────────────
+# 지역코드(법정동코드) 안내
+#   - 2026-07-01부로 광주광역시 + 전라남도가 "전남광주통합특별시"(신규 시도코드 12)로
+#     행정통합되었습니다. 기존 광주 5개구(동구/서구/남구/북구/광산구)의 법정동코드는
+#     29xxx → 12xxx 로 전면 재부여되었습니다. (기존 29xxx 코드는 폐지되어 더 이상
+#     실거래가 API에서 유효하지 않습니다 — "광주 데이터가 안 불러와짐" 문제의 원인)
+#   - 같은 시기(2026-07) 인천광역시도 자치구가 개편되어 기존 중구/동구가 폐지되고
+#     제물포구/영종구/서해구/검단구가 신설되었습니다.
+#   - 대전광역시+충청남도 통합("대전충남통합특별시")은 2026년 2월 국회 절차에서
+#     보류되어 아직 시행되지 않았습니다. 즉 대전 5개구(30110/30140/30170/30200/30230)
+#     코드는 이번 개편과 무관하며 기존 코드가 그대로 유효합니다.
+#   - 위 내용은 행정표준코드관리시스템(code.go.kr)의 법정동코드목록조회 화면을 통해
+#     2026-08-29 기준으로 직접 재검증한 값입니다.
+# ─────────────────────────────────────────────────────────
 REGION_STRUCTURE = {
     "경기도": {
         "성남시": {"분당구": "41135", "수정구": "41131", "중원구": "41133"},
@@ -387,6 +401,7 @@ REGION_STRUCTURE = {
         "파주시": {"파주시 전체": "41480"},
         "김포시": {"김포시 전체": "41570"},
         "광명시": {"광명시 전체": "41210"},
+        "광주시": {"광주시 전체": "41610"},
         "군포시": {"군포시 전체": "41410"},
         "오산시": {"오산시 전체": "41370"},
         "이천시": {"이천시 전체": "41500"},
@@ -411,8 +426,10 @@ REGION_STRUCTURE = {
         "강북구": "11305", "중랑구": "11260", "은평구": "11380", "종로구": "11110", "중구": "11140"
     },
     "인천광역시": {
+        # 2026-07 자치구 개편: 중구/동구 폐지 → 제물포구/영종구/서해구/검단구 신설
         "연수구": "28185", "남동구": "28200", "서구": "28260", "부평구": "28237",
-        "미추홀구": "28177", "계양구": "28245", "중구": "28110", "동구": "28140", "강화군": "28710"
+        "미추홀구": "28177", "계양구": "28245", "강화군": "28710", "옹진군": "28720",
+        "제물포구": "28125", "영종구": "28155", "서해구": "28275", "검단구": "28290"
     },
     "부산광역시": {
         "해운대구": "26350", "수영구": "26500", "남구": "26290", "동래구": "26260",
@@ -424,16 +441,70 @@ REGION_STRUCTURE = {
         "서구": "27170", "남구": "27200", "북구": "27230", "달성군": "27710"
     },
     "대전광역시": {
+        # 대전+충남 통합("대전충남통합특별시")은 2026-02 국회 절차 보류로 미시행 → 기존 코드 유효
         "유성구": "30200", "서구": "30170", "중구": "30140", "동구": "30110", "대덕구": "30230"
-    },
-    "광주광역시": {
-        "광산구": "29200", "서구": "29140", "남구": "29150", "북구": "29170", "동구": "29110"
     },
     "울산광역시": {
         "남구": "31140", "중구": "31110", "북구": "31200", "동구": "31170", "울주군": "31710"
     },
     "세종특별자치시": {
         "세종특별자치시": "36110"
+    },
+    "전남광주통합특별시": {
+        # 2026-07-01 광주광역시+전라남도 행정통합으로 신설. 시도코드 12.
+        # 행정코드는 전남 5개시 → 광주 5개구 → 전남 17개군 순서로 재부여됨
+        "목포시": "12110", "여수시": "12130", "순천시": "12150", "나주시": "12170", "광양시": "12190",
+        "동구": "12210", "서구": "12240", "남구": "12270", "북구": "12300", "광산구": "12330",
+        "담양군": "12710", "곡성군": "12720", "구례군": "12730", "고흥군": "12740", "보성군": "12750",
+        "화순군": "12760", "장흥군": "12770", "강진군": "12780", "해남군": "12790", "영암군": "12800",
+        "무안군": "12810", "함평군": "12820", "영광군": "12830", "장성군": "12840", "완도군": "12850",
+        "진도군": "12860", "신안군": "12870"
+    },
+    "강원특별자치도": {
+        "춘천시": "51110", "원주시": "51130", "강릉시": "51150", "동해시": "51170",
+        "태백시": "51190", "속초시": "51210", "삼척시": "51230",
+        "홍천군": "51720", "횡성군": "51730", "영월군": "51750", "평창군": "51760",
+        "정선군": "51770", "철원군": "51780", "화천군": "51790", "양구군": "51800",
+        "인제군": "51810", "고성군": "51820", "양양군": "51830"
+    },
+    "충청북도": {
+        "청주시 상당구": "43111", "청주시 서원구": "43112", "청주시 흥덕구": "43113", "청주시 청원구": "43114",
+        "충주시": "43130", "제천시": "43150",
+        "보은군": "43720", "옥천군": "43730", "영동군": "43740", "증평군": "43745",
+        "진천군": "43750", "괴산군": "43760", "음성군": "43770", "단양군": "43800"
+    },
+    "충청남도": {
+        "천안시 동남구": "44131", "천안시 서북구": "44133",
+        "공주시": "44150", "보령시": "44180", "아산시": "44200", "서산시": "44210",
+        "논산시": "44230", "계룡시": "44250", "당진시": "44270",
+        "금산군": "44710", "부여군": "44760", "서천군": "44770", "청양군": "44790",
+        "홍성군": "44800", "예산군": "44810", "태안군": "44825"
+    },
+    "전북특별자치도": {
+        "전주시 완산구": "52111", "전주시 덕진구": "52113",
+        "군산시": "52130", "익산시": "52140", "정읍시": "52180", "남원시": "52190", "김제시": "52210",
+        "완주군": "52710", "진안군": "52720", "무주군": "52730", "장수군": "52740",
+        "임실군": "52750", "순창군": "52770", "고창군": "52790", "부안군": "52800"
+    },
+    "경상북도": {
+        "포항시 남구": "47111", "포항시 북구": "47113",
+        "경주시": "47130", "김천시": "47150", "안동시": "47170", "구미시": "47190",
+        "영주시": "47210", "영천시": "47230", "상주시": "47250", "문경시": "47280", "경산시": "47290",
+        "의성군": "47730", "청송군": "47750", "영양군": "47760", "영덕군": "47770", "청도군": "47820",
+        "고령군": "47830", "성주군": "47840", "칠곡군": "47850", "예천군": "47900",
+        "봉화군": "47920", "울진군": "47930", "울릉군": "47940"
+    },
+    "경상남도": {
+        "창원시 의창구": "48121", "창원시 성산구": "48123", "창원시 마산합포구": "48125",
+        "창원시 마산회원구": "48127", "창원시 진해구": "48129",
+        "진주시": "48170", "통영시": "48220", "사천시": "48240", "김해시": "48250",
+        "밀양시": "48270", "거제시": "48310", "양산시": "48330",
+        "의령군": "48720", "함안군": "48730", "창녕군": "48740", "고성군": "48820",
+        "남해군": "48840", "하동군": "48850", "산청군": "48860", "함양군": "48870",
+        "거창군": "48880", "합천군": "48890"
+    },
+    "제주특별자치도": {
+        "제주시": "50110", "서귀포시": "50130"
     }
 }
 
@@ -441,6 +512,7 @@ REGION_STRUCTURE = {
 def fetch_trade_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
     task_records = []
     page = 1
+    last_error = None
 
     while True:
         params = {
@@ -454,26 +526,33 @@ def fetch_trade_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str)
         res = None
         try:
             res = HTTP_SESSION.get(TRADE_BASE_URL, params=params, timeout=12)
-        except Exception:
-            pass
+        except Exception as e:
+            last_error = f"[매매/{sido} {city} {gu}] 요청 실패: {e}"
 
         if res is None or res.status_code != 200 or '<item>' not in res.text:
             fallback_url = f"{TRADE_BASE_URL}?serviceKey={ENCODING_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=1000&pageNo={page}"
             try:
                 res = HTTP_SESSION.get(fallback_url, timeout=12)
-            except Exception:
+            except Exception as e:
+                last_error = f"[매매/{sido} {city} {gu}] 요청 실패(fallback): {e}"
                 break
 
         if res is None or res.status_code != 200:
+            status = res.status_code if res is not None else '무응답'
+            last_error = f"[매매/{sido} {city} {gu}] HTTP 오류: {status}"
             break
 
         try:
             root = ET.fromstring(res.content)
         except Exception:
+            last_error = f"[매매/{sido} {city} {gu}] 응답 파싱 실패"
             break
 
         result_code = root.find('.//resultCode')
         if result_code is not None and result_code.text not in ['00', '000']:
+            result_msg_tag = root.find('.//resultMsg')
+            result_msg = result_msg_tag.text if result_msg_tag is not None else '알 수 없음'
+            last_error = f"[매매/{sido} {city} {gu}] API 오류 코드 {result_code.text}: {result_msg}"
             break
 
         total_tag = root.find('.//totalCount')
@@ -518,12 +597,13 @@ def fetch_trade_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str)
             break
         page += 1
 
-    return task_records
+    return task_records, last_error
 
 
 def fetch_rent_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
     task_records = []
     page = 1
+    last_error = None
 
     while True:
         res = None
@@ -545,15 +625,27 @@ def fetch_rent_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
                 if r_fb.status_code == 200 and '<item>' in r_fb.text:
                     res = r_fb
                     break
-            except Exception:
+                last_error = f"[전세/{sido} {city} {gu}] HTTP {r.status_code}"
+            except Exception as e:
+                last_error = f"[전세/{sido} {city} {gu}] 요청 실패: {e}"
                 continue
 
         if res is None or res.status_code != 200:
+            if last_error is None:
+                last_error = f"[전세/{sido} {city} {gu}] 응답 없음"
             break
 
         try:
             root = ET.fromstring(res.content)
         except Exception:
+            last_error = f"[전세/{sido} {city} {gu}] 응답 파싱 실패"
+            break
+
+        result_code = root.find('.//resultCode')
+        if result_code is not None and result_code.text not in ['00', '000']:
+            result_msg_tag = root.find('.//resultMsg')
+            result_msg = result_msg_tag.text if result_msg_tag is not None else '알 수 없음'
+            last_error = f"[전세/{sido} {city} {gu}] API 오류 코드 {result_code.text}: {result_msg}"
             break
 
         items = root.findall('.//item')
@@ -592,7 +684,7 @@ def fetch_rent_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
             break
         page += 1
 
-    return task_records
+    return task_records, last_error
 
 # ── 4. 병렬 분산 수집 & 캐싱 ──────────────────────────────
 @st.cache_data(ttl=86400)
@@ -611,6 +703,7 @@ def fetch_all_target_records(target_list_tuples, target_months_tuple):
 
     all_trade_records = []
     all_rent_records = []
+    error_messages = []
 
     with ThreadPoolExecutor(max_workers=16) as executor:
         trade_futures = [executor.submit(fetch_trade_task, *task) for task in trade_tasks]
@@ -618,21 +711,25 @@ def fetch_all_target_records(target_list_tuples, target_months_tuple):
 
         for future in as_completed(trade_futures):
             try:
-                res = future.result()
+                res, err = future.result()
                 if res:
                     all_trade_records.extend(res)
-            except Exception:
-                pass
+                if err:
+                    error_messages.append(err)
+            except Exception as e:
+                error_messages.append(f"매매 태스크 실행 실패: {e}")
 
         for future in as_completed(rent_futures):
             try:
-                res = future.result()
+                res, err = future.result()
                 if res:
                     all_rent_records.extend(res)
-            except Exception:
-                pass
+                if err:
+                    error_messages.append(err)
+            except Exception as e:
+                error_messages.append(f"전세 태스크 실행 실패: {e}")
 
-    return pd.DataFrame(all_trade_records), pd.DataFrame(all_rent_records)
+    return pd.DataFrame(all_trade_records), pd.DataFrame(all_rent_records), error_messages
 
 # ── 5. 사이드바 설정 ─────────────────────────────────────
 st.sidebar.markdown("### ⚙️ 대시보드 설정")
@@ -890,11 +987,18 @@ else:
 scope_name = selected_city if selected_sido == "경기도" else selected_gu_direct
 
 with st.spinner(f"'{selected_sido} {scope_name} ({selected_gu if selected_sido == '경기도' else ''})' 매매 및 전세 실거래 데이터를 조회 중입니다..."):
-    raw_df, raw_rent_df = fetch_all_target_records(tuple(target_codes_to_fetch), tuple(target_months))
+    raw_df, raw_rent_df, fetch_errors = fetch_all_target_records(tuple(target_codes_to_fetch), tuple(target_months))
 
 if raw_df.empty:
     st.cache_data.clear()
-    st.warning("국토교통부 API 서버 응답이 지연되었습니다. 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러주세요.")
+    if fetch_errors:
+        unique_errors = list(dict.fromkeys(fetch_errors))[:5]
+        st.warning("국토교통부 API 조회 중 아래와 같은 문제가 발생하여 데이터를 가져오지 못했습니다.")
+        for err in unique_errors:
+            st.code(err)
+        st.info("지역코드가 변경되었거나(행정구역 개편) 서비스키 트래픽 제한일 수 있습니다. 잠시 후 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러 다시 시도해주세요.")
+    else:
+        st.warning("국토교통부 API 서버 응답이 지연되었거나 해당 지역·기간에 실거래 데이터가 없습니다. 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러주세요.")
     st.stop()
 
 # ── [데이터 정제: 1. 통매입 제외 -> 2. 평형 산출] ─────────────
