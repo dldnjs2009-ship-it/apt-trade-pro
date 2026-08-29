@@ -253,7 +253,7 @@ def calculate_dsr_max_loan(annual_income: int, loan_interest: float, term_years:
 
 
 def get_price_rate_badge(change_rate: float) -> str:
-    """최근 실거래가 대비 최고가 변동률 배지 생성"""
+    """조회기간 최고가 대비 변동률 상태 배지 생성"""
     if change_rate <= -20.0:
         return f'<span class="badge-rate bargain">급매권 ({change_rate:+.1f}%)</span>'
     elif change_rate <= -8.0:
@@ -261,7 +261,7 @@ def get_price_rate_badge(change_rate: float) -> str:
     elif change_rate < 0.0:
         return f'<span class="badge-rate high">회복권 ({change_rate:+.1f}%)</span>'
     else:
-        return '<span class="badge-rate high">신고가/보합</span>'
+        return '<span class="badge-rate high">기간 최고가/보합</span>'
 
 
 def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFrame:
@@ -439,7 +439,7 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
         for item in items:
             r = {child.tag: (child.text.strip() if child.text else '') for child in item}
             
-            # 취소 거래 원천 배제
+            # 취소 거래 배제
             if r.get('cdealType', '') == 'O' or r.get('cdealDay', '') != '':
                 continue
 
@@ -598,7 +598,7 @@ else:
         step=5,
         format="%d㎡"
     )
-    slider_min_m2, slider_max_m2 = slider_min_m2_range = slider_m2_range
+    slider_min_m2, slider_max_m2 = slider_m2_range
 
 st.sidebar.markdown("---")
 
@@ -882,7 +882,7 @@ else:
 
 st.markdown(kpi_html, unsafe_allow_html=True)
 
-# ── 8. 차트 및 동별 순위표 (실제 거래량 100% 집계) ─────────────
+# ── 8. 차트 및 동별 순위표 ────────────────────────────────
 c1, c2 = st.columns([3, 2])
 
 display_title = f"{selected_sido} {scope_name}"
@@ -935,7 +935,7 @@ with c2:
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-# ── 9. 추천 단지 TOP 15 (총 거래량 순위 + 로열층 최근 실거래가) ───
+# ── 9. 추천 단지 TOP 15 (조회기간 최고가 대비 명확화) ──────────
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -947,21 +947,18 @@ else:
 if affordable_df.empty:
     st.info("현재 설정된 조건(면적/예산 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
 else:
-    # 가장 최근 2개 월 추출
     recent_two_months = sorted(list(affordable_df['month'].unique()))[-2:]
 
     def aggregate_apt_metrics(group):
-        # 1. 거래량은 저층/직거래 포함 전체 거래건수 집계 (유동성 왜곡 방지)
         total_count = len(group)
         max_price_val = group['price'].max()
         mean_area = group['area'].mean()
         
-        # 2. 가격 계산 시에만 저층(1~3층) 및 직거래를 제외하여 정확한 로열층 시세 반영
+        # 가격 계산 시에만 저층(1~3층) 및 직거래를 제외하여 로열층 실거래가 산출
         clean_group = group[(group['floor'] > 3) & (group['deal_type'] != '직거래')]
         if clean_group.empty:
             clean_group = group
 
-        # 최근 1~2개월 실거래 데이터 우선 반영
         recent_deals = clean_group[clean_group['month'].isin(recent_two_months)]
         if not recent_deals.empty:
             recent_mean = recent_deals['price'].mean()
@@ -971,7 +968,7 @@ else:
         return pd.Series({
             '거래건수': total_count,
             '최근실거래가': recent_mean,
-            '해당평형최고가': max_price_val,
+            '조회기간최고가': max_price_val,
             '전용면적_평균': mean_area
         })
 
@@ -979,14 +976,14 @@ else:
         aggregate_apt_metrics
     ).reset_index()
 
-    # 최근 실거래가 기준 전고점(최고가) 대비 변동률 산출
-    apt_rank['변동률'] = ((apt_rank['최근실거래가'] - apt_rank['해당평형최고가']) / apt_rank['해당평형최고가']) * 100
+    # 조회기간 최고가 대비 변동률 산출
+    apt_rank['변동률'] = ((apt_rank['최근실거래가'] - apt_rank['조회기간최고가']) / apt_rank['조회기간최고가']) * 100
     apt_rank['상태배지'] = apt_rank['변동률'].apply(get_price_rate_badge)
 
     apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(15).reset_index(drop=True)
 
     apt_rank['최근실거래가_fmt'] = apt_rank['최근실거래가'].astype(int).apply(format_price)
-    apt_rank['해당평형최고가_fmt'] = apt_rank['해당평형최고가'].astype(int).apply(format_price)
+    apt_rank['조회기간최고가_fmt'] = apt_rank['조회기간최고가'].astype(int).apply(format_price)
     apt_rank['전용면적_평형'] = apt_rank['전용면적_평균'].apply(
         lambda x: f"{x:.1f}㎡ ({int(round((x/3.30578)/0.745))}평형)"
     )
@@ -1007,7 +1004,7 @@ else:
                     <div class="rank-loc">{loc_txt}</div>
                     <div>{rate_badge_html}</div>
                     <div class="rank-price">{row['최근실거래가_fmt']}원</div>
-                    <div class="rank-meta">총 {int(row['거래건수'])}건 거래 · 최고가 {row['해당평형최고가_fmt']}원</div>
+                    <div class="rank-meta">총 {int(row['거래건수'])}건 거래 · 기간 최고가 {row['조회기간최고가_fmt']}원</div>
                 </div>""", unsafe_allow_html=True)
         st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
@@ -1022,13 +1019,13 @@ else:
             elif val < 0:
                 return f"회복 ({val:.1f}%)"
             else:
-                return "신고가"
+                return "기간 최고가"
 
-        rest['전고점대비'] = rest['변동률'].apply(format_status_text)
+        rest['최고가대비'] = rest['변동률'].apply(format_status_text)
         rest['거래건수'] = rest['거래건수'].astype(int)
 
-        rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '최근실거래가_fmt', '해당평형최고가_fmt', '전고점대비']].copy()
-        rest_display.columns = ['시·군', '구', '법정동', '단지명', '면적(공급평형)', '거래건수', '최근 실거래가', '최고가', '전고점대비']
+        rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '최근실거래가_fmt', '조회기간최고가_fmt', '최고가대비']].copy()
+        rest_display.columns = ['시·군', '구', '법정동', '단지명', '면적(공급평형)', '거래건수', '최근 실거래가', '조회기간 최고가', '최고가 대비']
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
         
