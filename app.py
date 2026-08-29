@@ -439,7 +439,7 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
         for item in items:
             r = {child.tag: (child.text.strip() if child.text else '') for child in item}
             
-            # 취소 거래 배제
+            # 취소 거래 원천 배제
             if r.get('cdealType', '') == 'O' or r.get('cdealDay', '') != '':
                 continue
 
@@ -549,29 +549,11 @@ elif period_option == "최근 12개월 (1년)":
 else:
     target_months = [f"2024{m:02d}" for m in range(1, 13)]
 
-# [2] 정밀 필터링 옵션
+# [2] 이상치 정제 옵션
 filter_bulk_option = st.sidebar.checkbox(
     "🚫 통매입/임대 대량 일괄거래 제외",
     value=True,
     help="동일 단지·월·면적·가격으로 10건 이상 동시 등록된 공공 매입임대/통매매 이상치를 제거합니다."
-)
-
-exclude_direct_trade = st.sidebar.checkbox(
-    "🚫 직거래(증여성/특수거래) 제외",
-    value=True,
-    help="시세보다 수억 원 낮게 거래되는 가족 간 증여성 직거래를 제외하여 정확한 시세를 반영합니다."
-)
-
-exclude_low_floor = st.sidebar.checkbox(
-    "🚫 저층(1~3층) 제외",
-    value=True,
-    help="1~3층 저층 거래는 로열층보다 5~15% 낮게 거래되어 평균 가격을 왜곡하므로 계산에서 제외합니다."
-)
-
-exclude_top_floor = st.sidebar.checkbox(
-    "🚫 탑층(최고층) 제외",
-    value=False,
-    help="단지 내 최고층(탑층) 특수 거래를 통계에서 제외합니다."
 )
 
 st.sidebar.markdown("---")
@@ -616,7 +598,7 @@ else:
         step=5,
         format="%d㎡"
     )
-    slider_min_m2, slider_max_m2 = slider_m2_range
+    slider_min_m2, slider_max_m2 = slider_min_m2_range = slider_m2_range
 
 st.sidebar.markdown("---")
 
@@ -788,21 +770,11 @@ if raw_df.empty:
     st.warning("국토교통부 API 서버 응답이 지연되었습니다. 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러주세요.")
     st.stop()
 
-# ── [데이터 정제: 1. 통매입 -> 2. 직거래 -> 3. 저층/탑층 -> 4. 평형별 분리] ──
+# ── [데이터 정제: 1. 통매입 제외 -> 2. 평형 산출] ─────────────
 df = raw_df.copy()
 
 if filter_bulk_option:
     df = remove_bulk_acquisitions(df, threshold=10)
-
-if exclude_direct_trade:
-    df = df[df['deal_type'] != '직거래'].copy()
-
-if exclude_low_floor:
-    df = df[df['floor'] > 3].copy()
-
-if exclude_top_floor and not df.empty:
-    max_floors = df.groupby(['city', 'gu', 'dong', 'apt'])['floor'].transform('max')
-    df = df[(df['floor'] < max_floors) | (max_floors <= 4)].copy()
 
 # 평형 그룹 및 라벨 산출
 pyeong_info = df['area'].apply(get_pyeong_group_key)
@@ -845,8 +817,17 @@ else:
     affordable_df = view_df
     dong_rank_source = df
 
-# ── 7. 요약 통계 KPI 카드 ─────────────────────────────────
+# ── 7. 요약 통계 KPI 카드 (거래량은 전체 실제 거래 100% 반영) ───
 match_pct = (len(affordable_df) / len(view_df) * 100) if len(view_df) > 0 else 0
+
+# 가격 계산 시에만 저층·직거래를 제외하여 정확한 로열층 시세 도출
+clean_price_deals = view_df[(view_df['floor'] > 3) & (view_df['deal_type'] != '직거래')]
+if clean_price_deals.empty:
+    clean_price_deals = view_df
+
+avg_clean_price = int(clean_price_deals['price'].mean()) if len(clean_price_deals) > 0 else 0
+max_price = int(view_df['price'].max()) if len(view_df) > 0 else 0
+apt_count = view_df['apt'].nunique() if len(view_df) > 0 else 0
 
 if calc_enabled:
     kpi_html = f"""
@@ -874,20 +855,17 @@ if calc_enabled:
     </div>
     """
 else:
-    avg_price = int(view_df['price'].mean()) if len(view_df) > 0 else 0
-    max_price = int(view_df['price'].max()) if len(view_df) > 0 else 0
-    apt_count = view_df['apt'].nunique() if len(view_df) > 0 else 0
     kpi_html = f"""
     <div class="kpi-grid-container">
         <div class="kpi-card">
             <div class="kpi-label">📊 전체 거래건수</div>
             <div class="kpi-value">{len(view_df):,}건</div>
-            <div class="kpi-sub muted">저층·직거래 제외 정상 거래</div>
+            <div class="kpi-sub muted">해당 기간 전체 실거래 100%</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">💰 평균 실거래가</div>
-            <div class="kpi-value accent">{format_price(avg_price)}</div>
-            <div class="kpi-sub muted">로열층 중개거래 전체 평균</div>
+            <div class="kpi-value accent">{format_price(avg_clean_price)}</div>
+            <div class="kpi-sub muted">로열층 중개거래 기준</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">🏆 최고 실거래가</div>
@@ -904,7 +882,7 @@ else:
 
 st.markdown(kpi_html, unsafe_allow_html=True)
 
-# ── 8. 차트 및 동별 순위표 ────────────────────────────────
+# ── 8. 차트 및 동별 순위표 (실제 거래량 100% 집계) ─────────────
 c1, c2 = st.columns([3, 2])
 
 display_title = f"{selected_sido} {scope_name}"
@@ -957,7 +935,7 @@ with c2:
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-# ── 9. 추천 단지 TOP 15 (최신 실거래가 중심의 정갈한 UI) ─────────
+# ── 9. 추천 단지 TOP 15 (총 거래량 순위 + 로열층 최근 실거래가) ───
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -967,22 +945,28 @@ else:
     st.markdown(f'<div class="section-title">🏆 {display_title} 실거래 인기 단지 TOP 15</div>', unsafe_allow_html=True)
 
 if affordable_df.empty:
-    st.info("현재 설정된 조건(면적/예산/층수 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
+    st.info("현재 설정된 조건(면적/예산 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
 else:
-    # 가장 최근 2개 월 추출 (최신 시세 산출용)
+    # 가장 최근 2개 월 추출
     recent_two_months = sorted(list(affordable_df['month'].unique()))[-2:]
 
     def aggregate_apt_metrics(group):
+        # 1. 거래량은 저층/직거래 포함 전체 거래건수 집계 (유동성 왜곡 방지)
         total_count = len(group)
         max_price_val = group['price'].max()
         mean_area = group['area'].mean()
         
-        # 최근 1~2개월 실거래 데이터만 별도 추출하여 최신 시세 산출
-        recent_deals = group[group['month'].isin(recent_two_months)]
+        # 2. 가격 계산 시에만 저층(1~3층) 및 직거래를 제외하여 정확한 로열층 시세 반영
+        clean_group = group[(group['floor'] > 3) & (group['deal_type'] != '직거래')]
+        if clean_group.empty:
+            clean_group = group
+
+        # 최근 1~2개월 실거래 데이터 우선 반영
+        recent_deals = clean_group[clean_group['month'].isin(recent_two_months)]
         if not recent_deals.empty:
             recent_mean = recent_deals['price'].mean()
         else:
-            recent_mean = group['price'].mean()
+            recent_mean = clean_group['price'].mean()
             
         return pd.Series({
             '거래건수': total_count,
@@ -1023,7 +1007,7 @@ else:
                     <div class="rank-loc">{loc_txt}</div>
                     <div>{rate_badge_html}</div>
                     <div class="rank-price">{row['최근실거래가_fmt']}원</div>
-                    <div class="rank-meta">거래 {int(row['거래건수'])}건 · 최고가 {row['해당평형최고가_fmt']}원</div>
+                    <div class="rank-meta">총 {int(row['거래건수'])}건 거래 · 최고가 {row['해당평형최고가_fmt']}원</div>
                 </div>""", unsafe_allow_html=True)
         st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
