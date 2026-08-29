@@ -42,6 +42,7 @@ CUSTOM_CSS = """
     --warning: #dd6b20;
     --rise: #e53e3e;
     --fall: #2a78d6;
+    --gap-purple: #7048e8;
 }
 
 html, body, [class*="css"] {
@@ -112,12 +113,19 @@ html, body, [class*="css"] {
     border: 1px solid var(--border-hairline);
     box-shadow: 0 6px 18px rgba(11,11,11,0.05);
     position: relative; height: 100%;
+    display: flex; flex-direction: column; justify-content: space-between;
 }
 .rank-badge { position: absolute; top: -12px; left: 14px; font-size: 1.5rem; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.12)); }
 .rank-apt { font-weight: 800; font-size: 1.02rem; margin-top: 8px; color: var(--ink-primary); line-height: 1.3; }
 .rank-loc { font-size: .76rem; color: var(--ink-muted); margin-top: 4px; }
 .rank-price { font-size: 1.38rem; font-weight: 800; color: var(--brand-accent); margin-top: 10px; font-variant-numeric: tabular-nums; }
 .rank-meta { font-size: .76rem; color: var(--ink-secondary); margin-top: 5px; }
+
+.rank-gap-box {
+    background: #f8f6ff; border-radius: 8px; padding: 6px 10px; margin-top: 8px;
+    border: 1px solid rgba(112, 72, 232, 0.18);
+    font-size: .77rem; color: var(--gap-purple); font-weight: 700;
+}
 
 /* 6개월 시세 변동률 배지 */
 .badge-rate {
@@ -204,6 +212,8 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 # ── 1-2. 보조 연산 및 부대비용/면적 환산 함수 ──────────────────
 def format_price(x: int) -> str:
     """만원 단위 정수를 'N억 N,NNN만' 형식 문자열로 변환."""
+    if pd.isna(x) or x is None or int(x) <= 0:
+        return "-"
     x = int(x)
     return f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만"
 
@@ -290,7 +300,12 @@ def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFr
 # ── 2. 기본 설정, 세션 풀 및 방문자 집계 ──────────────────
 DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
 ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
-BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+
+TRADE_BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+RENT_API_URLS = [
+    "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent",
+    "https://apis.data.go.kr/1613000/RTMSDataSvcAptRentDev/getRTMSDataSvcAptRentDev"
+]
 
 @st.cache_resource
 def get_visitor_storage():
@@ -321,7 +336,7 @@ def get_http_session():
         backoff_factor=0.3,
         status_forcelist=[429, 500, 502, 503, 504]
     )
-    adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=retries)
+    adapter = HTTPAdapter(pool_connections=25, pool_maxsize=25, max_retries=retries)
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     session.headers.update({
@@ -404,8 +419,8 @@ REGION_STRUCTURE = {
     }
 }
 
-# ── 3. 단일 월 수집 태스크 ────────────────────────────────
-def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
+# ── 3. 단일 월 매매 및 전세 수집 태스크 ───────────────────────
+def fetch_trade_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
     task_records = []
     page = 1
 
@@ -420,12 +435,12 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
 
         res = None
         try:
-            res = HTTP_SESSION.get(BASE_URL, params=params, timeout=12)
+            res = HTTP_SESSION.get(TRADE_BASE_URL, params=params, timeout=12)
         except Exception:
             pass
 
         if res is None or res.status_code != 200 or '<item>' not in res.text:
-            fallback_url = f"{BASE_URL}?serviceKey={ENCODING_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=1000&pageNo={page}"
+            fallback_url = f"{TRADE_BASE_URL}?serviceKey={ENCODING_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=1000&pageNo={page}"
             try:
                 res = HTTP_SESSION.get(fallback_url, timeout=12)
             except Exception:
@@ -452,19 +467,10 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
 
         for item in items:
             r = {child.tag: (child.text.strip() if child.text else '') for child in item}
-            
-            # 취소 거래 원천 배제
             if r.get('cdealType', '') == 'O' or r.get('cdealDay', '') != '':
                 continue
 
-            raw_dong = r.get('umdNm', '').strip()
-            if not raw_dong:
-                raw_dong = r.get('aptDong', '').strip() or '기타'
-            else:
-                parts = raw_dong.split()
-                if len(parts) > 1 and parts[0].endswith(('읍', '면')):
-                    raw_dong = parts[0]
-
+            raw_dong = r.get('umdNm', '').strip() or r.get('aptDong', '').strip() or '기타'
             floor_str = str(r.get('floor', '0')).strip()
             try:
                 floor_val = int(floor_str)
@@ -496,30 +502,119 @@ def fetch_single_month_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
 
     return task_records
 
+
+def fetch_rent_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
+    task_records = []
+    page = 1
+
+    while True:
+        res = None
+        for url in RENT_API_URLS:
+            params = {
+                'serviceKey': DECODING_KEY,
+                'LAWD_CD': lawd_cd,
+                'DEAL_YMD': deal_ymd,
+                'numOfRows': '1000',
+                'pageNo': str(page)
+            }
+            try:
+                r = HTTP_SESSION.get(url, params=params, timeout=12)
+                if r.status_code == 200 and '<item>' in r.text:
+                    res = r
+                    break
+                fallback_url = f"{url}?serviceKey={ENCODING_KEY}&LAWD_CD={lawd_cd}&DEAL_YMD={deal_ymd}&numOfRows=1000&pageNo={page}"
+                r_fb = HTTP_SESSION.get(fallback_url, timeout=12)
+                if r_fb.status_code == 200 and '<item>' in r_fb.text:
+                    res = r_fb
+                    break
+            except Exception:
+                continue
+
+        if res is None or res.status_code != 200:
+            break
+
+        try:
+            root = ET.fromstring(res.content)
+        except Exception:
+            break
+
+        items = root.findall('.//item')
+        if not items:
+            break
+
+        for item in items:
+            r = {child.tag: (child.text.strip() if child.text else '') for child in item}
+            monthly_rent = str(r.get('monthlyRent', '0')).replace(',', '').strip()
+            # 순수 전세만 수집
+            if monthly_rent == '0':
+                raw_dong = r.get('umdNm', '').strip() or r.get('aptDong', '').strip() or '기타'
+                floor_str = str(r.get('floor', '0')).strip()
+                try:
+                    floor_val = int(floor_str)
+                except ValueError:
+                    floor_val = 0
+
+                deposit = int(str(r.get('deposit', '0')).replace(',', '').strip() or 0)
+                deal_year = r.get('dealYear', '')
+                deal_month = str(r.get('dealMonth', '')).zfill(2)
+
+                task_records.append({
+                    'sido': sido,
+                    'city': city,
+                    'gu': gu,
+                    'dong': raw_dong,
+                    'apt': r.get('aptNm', '').strip(),
+                    'area': float(r.get('excluUseAr', 0) or 0),
+                    'floor': floor_val,
+                    'deposit': deposit,
+                    'month': f"{deal_year}-{deal_month}"
+                })
+
+        if len(items) < 1000:
+            break
+        page += 1
+
+    return task_records
+
 # ── 4. 병렬 분산 수집 & 캐싱 ──────────────────────────────
 @st.cache_data(ttl=86400)
-def fetch_target_records(target_list_tuples, target_months_tuple):
-    tasks = []
+def fetch_all_target_records(target_list_tuples, target_months_tuple):
+    trade_tasks = []
+    rent_tasks = []
     seen_calls = set()
+
     for code, sido, city, gu in target_list_tuples:
         for deal_ymd in target_months_tuple:
             call_key = (code, deal_ymd)
             if call_key not in seen_calls:
                 seen_calls.add(call_key)
-                tasks.append((code, deal_ymd, sido, city, gu))
+                trade_tasks.append((code, deal_ymd, sido, city, gu))
+                rent_tasks.append((code, deal_ymd, sido, city, gu))
 
-    all_records = []
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(fetch_single_month_task, *task) for task in tasks]
-        for future in as_completed(futures):
+    all_trade_records = []
+    all_rent_records = []
+
+    with ThreadPoolExecutor(max_workers=16) as executor:
+        trade_futures = [executor.submit(fetch_trade_task, *task) for task in trade_tasks]
+        rent_futures = [executor.submit(fetch_rent_task, *task) for task in rent_tasks]
+
+        for future in as_completed(trade_futures):
             try:
                 res = future.result()
                 if res:
-                    all_records.extend(res)
+                    all_trade_records.extend(res)
             except Exception:
                 pass
 
-    return pd.DataFrame(all_records)
+        for future in as_completed(rent_futures):
+            try:
+                res = future.result()
+                if res:
+                    all_rent_records.extend(res)
+            except Exception:
+                pass
+
+    return pd.DataFrame(all_trade_records), pd.DataFrame(all_rent_records)
 
 # ── 5. 사이드바 설정 ─────────────────────────────────────
 st.sidebar.markdown("### ⚙️ 대시보드 설정")
@@ -612,7 +707,7 @@ else:
         step=5,
         format="%d㎡"
     )
-    slider_min_m2, slider_max_m2 = slider_min_m2_range = slider_m2_range
+    slider_min_m2, slider_max_m2 = slider_m2_range
 
 st.sidebar.markdown("---")
 
@@ -708,7 +803,7 @@ else:
 st.markdown("""
 <div class="hero-banner">
   <h1>🏠 전국 아파트 실거래가 및 내집마련 대시보드</h1>
-  <p>국토교통부 실거래가 오픈 API 실시간 연동 · 시/구 전체 통합 집계 및 맞춤 추천</p>
+  <p>국토교통부 매매·전세 실거래가 오픈 API 실시간 연동 · 전세가율 및 실투자 갭 분석</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -776,8 +871,8 @@ else:
 
 scope_name = selected_city if selected_sido == "경기도" else selected_gu_direct
 
-with st.spinner(f"'{selected_sido} {scope_name} ({selected_gu if selected_sido == '경기도' else ''})' 실거래 데이터를 조회 중입니다..."):
-    raw_df = fetch_target_records(tuple(target_codes_to_fetch), tuple(target_months))
+with st.spinner(f"'{selected_sido} {scope_name} ({selected_gu if selected_sido == '경기도' else ''})' 매매 및 전세 실거래 데이터를 조회 중입니다..."):
+    raw_df, raw_rent_df = fetch_all_target_records(tuple(target_codes_to_fetch), tuple(target_months))
 
 if raw_df.empty:
     st.cache_data.clear()
@@ -786,14 +881,20 @@ if raw_df.empty:
 
 # ── [데이터 정제: 1. 통매입 제외 -> 2. 평형 산출] ─────────────
 df = raw_df.copy()
+rent_df = raw_rent_df.copy()
 
 if filter_bulk_option:
     df = remove_bulk_acquisitions(df, threshold=10)
 
-# 평형 그룹 및 라벨 산출
+# 매매 데이터 평형 산출
 pyeong_info = df['area'].apply(get_pyeong_group_key)
 df['supply_pyeong'] = [p[0] for p in pyeong_info]
 df['pyeong_label'] = [p[1] for p in pyeong_info]
+
+# 전세 데이터 평형 산출
+if not rent_df.empty:
+    rent_pyeong_info = rent_df['area'].apply(get_pyeong_group_key)
+    rent_df['supply_pyeong'] = [p[0] for p in rent_pyeong_info]
 
 # 면적 필터 적용
 if selected_quick_pyeong and len(selected_quick_pyeong) < len(quick_pyeong_options):
@@ -823,6 +924,7 @@ with col4:
     selected_dong = st.selectbox("읍·면·동", dong_list, label_visibility="collapsed")
 
 view_df = df if selected_dong == '전체 보기' else df[df['dong'] == selected_dong]
+view_rent_df = rent_df if (selected_dong == '전체 보기' or rent_df.empty) else rent_df[rent_df['dong'] == selected_dong]
 
 if filter_by_budget and max_affordable_price is not None:
     affordable_df = view_df[view_df['price'] <= max_affordable_price]
@@ -903,7 +1005,7 @@ else:
 
 st.markdown(kpi_html, unsafe_allow_html=True)
 
-# ── 8. 차트 및 동별 순위표 (가로 비율 최적화: 차트 40% : 순위표 60%) ───
+# ── 8. 차트 및 동별 순위표 (차트 40% : 순위표 60%) ─────────────
 c1, c2 = st.columns([2, 3])
 
 display_title = f"{selected_sido} {scope_name}"
@@ -956,7 +1058,7 @@ with c2:
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-# ── 9. 추천 단지 TOP 15 (6개월 전 시세 대비 상승·하락 추세 산출) ───
+# ── 9. 추천 단지 TOP 15 (전세가율 & 실투자 갭 통합 집계) ────────
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -969,22 +1071,40 @@ if affordable_df.empty:
     st.info("현재 설정된 조건(면적/예산 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
 else:
     all_period_months = sorted(list(affordable_df['month'].unique()))
-    
     early_fixed_months = all_period_months[:2] if len(all_period_months) >= 2 else all_period_months
     late_fixed_months = all_period_months[-2:] if len(all_period_months) >= 2 else all_period_months
     half_split_idx = max(1, len(all_period_months) // 2)
     first_half_months = all_period_months[:half_split_idx]
+
+    # 전세 데이터 사전 집계 (단지+평형별 최근 전세가)
+    rent_dict = {}
+    if not view_rent_df.empty:
+        # 저층 전세 제외 (시세 정밀화)
+        clean_rent_df = view_rent_df[view_rent_df['floor'] > 3]
+        if clean_rent_df.empty:
+            clean_rent_df = view_rent_df
+
+        for (c, g, d, a, p), r_group in clean_rent_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']):
+            # 최근 전세 거래 우선
+            r_recent = r_group[r_group['month'].isin(late_fixed_months)]
+            if not r_recent.empty:
+                r_price = r_recent['deposit'].mean()
+            else:
+                r_latest_month = r_group['month'].max()
+                r_price = r_group[r_group['month'] == r_latest_month]['deposit'].mean()
+            rent_dict[(c, g, d, a, p)] = int(r_price)
 
     def aggregate_apt_metrics(group):
         total_count = len(group)
         max_price_val = group['price'].max()
         mean_area = group['area'].mean()
         
+        # 1. 매매 가격 정제 (저층·직거래 제외)
         clean_group = group[(group['floor'] > 3) & (group['deal_type'] != '직거래')]
         if clean_group.empty:
             clean_group = group
 
-        # 1. 최근 실거래가 산출
+        # 2. 최근 실거래가 산출
         recent_deals = clean_group[clean_group['month'].isin(late_fixed_months)]
         if not recent_deals.empty:
             recent_mean = recent_deals['price'].mean()
@@ -992,7 +1112,7 @@ else:
             latest_month_of_apt = clean_group['month'].max()
             recent_mean = clean_group[clean_group['month'] == latest_month_of_apt]['price'].mean()
 
-        # 2. 5~6개월 전 초기 기준 시세 산출
+        # 3. 5~6개월 전 초기 기준 시세 산출
         base_deals = clean_group[clean_group['month'].isin(early_fixed_months)]
         if not base_deals.empty:
             base_mean = base_deals['price'].mean()
@@ -1004,11 +1124,26 @@ else:
                 earliest_month_of_apt = clean_group['month'].min()
                 base_mean = clean_group[clean_group['month'] == earliest_month_of_apt]['price'].mean()
 
-        # 3. 6개월 전 대비 시세 변동률(모멘텀) 산출
+        # 4. 6개월 전 대비 시세 변동률(모멘텀)
         if base_mean > 0:
             trend_rate = ((recent_mean - base_mean) / base_mean) * 100
         else:
             trend_rate = 0.0
+
+        # 5. 전세가 및 갭 매칭
+        c_val = group['city'].iloc[0]
+        g_val = group['gu'].iloc[0]
+        d_val = group['dong'].iloc[0]
+        a_val = group['apt'].iloc[0]
+        p_val = group['supply_pyeong'].iloc[0]
+
+        rent_val = rent_dict.get((c_val, g_val, d_val, a_val, p_val), None)
+        if rent_val and rent_val > 0:
+            jeonse_rate = (rent_val / recent_mean) * 100
+            gap_price = recent_mean - rent_val
+        else:
+            jeonse_rate = None
+            gap_price = None
 
         return pd.Series({
             '거래건수': total_count,
@@ -1016,6 +1151,9 @@ else:
             '초기기준시세': base_mean,
             '변동률': trend_rate,
             '조회기간최고가': max_price_val,
+            '최근전세가': rent_val,
+            '전세가율': jeonse_rate,
+            '실투자갭': gap_price,
             '전용면적_평균': mean_area
         })
 
@@ -1029,6 +1167,9 @@ else:
 
     apt_rank['최근실거래가_fmt'] = apt_rank['최근실거래가'].astype(int).apply(format_price)
     apt_rank['조회기간최고가_fmt'] = apt_rank['조회기간최고가'].astype(int).apply(format_price)
+    apt_rank['최근전세가_fmt'] = apt_rank['최근전세가'].apply(lambda x: format_price(x) if pd.notna(x) else "-")
+    apt_rank['실투자갭_fmt'] = apt_rank['실투자갭'].apply(lambda x: format_price(x) if pd.notna(x) else "-")
+    apt_rank['전세가율_fmt'] = apt_rank['전세가율'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "-")
     apt_rank['전용면적_평형'] = apt_rank['전용면적_평균'].apply(
         lambda x: f"{x:.1f}㎡ ({int(round((x/3.30578)/0.745))}평형)"
     )
@@ -1041,18 +1182,32 @@ else:
             apt_name = html.escape(str(row['apt']))
             loc_txt = html.escape(f"{row['city']} {row['gu']} {row['dong']} · {row['전용면적_평형']}")
             trend_badge_html = row['상태배지']
+            
+            # 전세 및 갭 텍스트 생성
+            if row['전세가율_fmt'] != "-":
+                gap_html = f"""
+                <div class="rank-gap-box">
+                    전세 {row['최근전세가_fmt']} (전세가율 {row['전세가율_fmt']} · 갭 {row['실투자갭_fmt']})
+                </div>
+                """
+            else:
+                gap_html = """<div class="rank-gap-box" style="color:var(--ink-muted); border-color:var(--border-hairline);">최근 전세 거래 없음</div>"""
 
             with top_cols[i]:
                 st.markdown(f"""<div class="rank-card">
-                    <div class="rank-badge">{medals[i]}</div>
-                    <div class="rank-apt">{apt_name}</div>
-                    <div class="rank-loc">{loc_txt}</div>
-                    <div>{trend_badge_html}</div>
-                    <div class="rank-price">{row['최근실거래가_fmt']}원</div>
-                    <div class="rank-meta">총 {int(row['거래건수'])}건 거래 · 기간 최고가 {row['조회기간최고가_fmt']}원</div>
+                    <div>
+                        <div class="rank-badge">{medals[i]}</div>
+                        <div class="rank-apt">{apt_name}</div>
+                        <div class="rank-loc">{loc_txt}</div>
+                        <div>{trend_badge_html}</div>
+                        <div class="rank-price">{row['최근실거래가_fmt']}원</div>
+                        <div class="rank-meta">총 {int(row['거래건수'])}건 거래 · 최고가 {row['조회기간최고가_fmt']}원</div>
+                    </div>
+                    {gap_html}
                 </div>""", unsafe_allow_html=True)
         st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
+    # 4위 이하 단지 표
     rest = apt_rank.iloc[3:].copy()
     if not rest.empty:
         def format_trend_text(val):
@@ -1070,8 +1225,14 @@ else:
         rest['6개월시세변동'] = rest['변동률'].apply(format_trend_text)
         rest['거래건수'] = rest['거래건수'].astype(int)
 
-        rest_display = rest[['city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', '최근실거래가_fmt', '조회기간최고가_fmt', '6개월시세변동']].copy()
-        rest_display.columns = ['시·군', '구', '법정동', '단지명', '면적(공급평형)', '거래건수', '최근 실거래가', '기간 최고가', '6개월 시세 변동']
+        rest_display = rest[[
+            'city', 'gu', 'dong', 'apt', '전용면적_평형', '거래건수', 
+            '최근실거래가_fmt', '최근전세가_fmt', '전세가율_fmt', '실투자갭_fmt', '6개월시세변동'
+        ]].copy()
+        rest_display.columns = [
+            '시·군', '구', '법정동', '단지명', '면적(공급평형)', '거래건수', 
+            '최근 매매가', '최근 전세가', '전세가율', '실투자 갭', '6개월 변동'
+        ]
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
         
