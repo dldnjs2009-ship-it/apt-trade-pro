@@ -223,8 +223,7 @@ def format_price(x: int) -> str:
 
 
 def get_pyeong_group_key(m2: float) -> tuple:
-    """전용면적(㎡)을 분양/공급 체감 평형 그룹으로 분류.
-    (반올림 공급평형, 표시용 라벨, 평단가 계산용 정밀 공급평형) 튜플 반환."""
+    """전용면적(㎡)을 분양/공급 체감 평형 그룹으로 분류."""
     raw_supply_p = (m2 / 3.30578) / 0.745
     supply_p = int(round(raw_supply_p))
     label = f"{m2:.1f}㎡ ({supply_p}평형)"
@@ -323,7 +322,7 @@ def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFr
 
 # ── 2. 기본 설정, 세션 풀 및 방문자 집계 ──────────────────
 def _get_secret(key: str, env_fallback: str = None) -> str:
-    """st.secrets → 환경변수 순으로 민감정보를 조회. 둘 다 없으면 앱 실행을 중단."""
+    """st.secrets → 환경변수 순으로 민감정보를 조회."""
     value = None
     try:
         value = st.secrets.get(key)
@@ -351,12 +350,11 @@ RENT_API_URLS = [
 ]
 
 VISITOR_DATA_PATH = Path(__file__).parent / "visitor_stats.json"
-VISITOR_LOG_MAX = 500   # 로그 최대 보관 건수 (파일 비대화 방지)
-VISITOR_DAILY_RETENTION_DAYS = 90  # 일별 집계 보관 기간
+VISITOR_LOG_MAX = 500
+VISITOR_DAILY_RETENTION_DAYS = 90
 
 
 def _load_visitor_data_from_disk() -> dict:
-    """디스크에 저장된 방문자 통계를 불러온다. 파일이 없거나 손상된 경우 빈 값으로 시작."""
     try:
         if VISITOR_DATA_PATH.exists():
             with open(VISITOR_DATA_PATH, "r", encoding="utf-8") as f:
@@ -371,16 +369,11 @@ def _load_visitor_data_from_disk() -> dict:
 
 
 def _save_visitor_data_to_disk(data: dict) -> None:
-    """방문자 통계를 디스크에 저장(write-through).
-    주의: Streamlit Community Cloud 등 컨테이너 기반 배포 환경은 재배포(reboot) 시
-    로컬 디스크가 초기화되므로, 이 저장은 앱이 켜져 있는 동안(재실행/슬립-웨이크 포함)의
-    지속성만 보장한다. 배포 간에도 절대 사라지지 않는 영구 저장이 필요하다면
-    Firebase/Supabase 같은 외부 저장소 연동이 필요하다."""
     try:
         with open(VISITOR_DATA_PATH, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
     except Exception:
-        pass  # 디스크 쓰기에 실패해도 대시보드 본 기능에는 영향이 없도록 무시
+        pass
 
 
 @st.cache_resource
@@ -401,7 +394,6 @@ if "session_visited" not in st.session_state:
         "date": today_key
     })
 
-    # 오래된 로그/일별 집계 정리 (파일이 무한정 커지지 않도록)
     if len(visitor_storage["logs"]) > VISITOR_LOG_MAX:
         visitor_storage["logs"] = visitor_storage["logs"][-VISITOR_LOG_MAX:]
     cutoff_date = (now_kst - timedelta(days=VISITOR_DAILY_RETENTION_DAYS)).strftime("%Y-%m-%d")
@@ -807,8 +799,7 @@ with st.sidebar.expander("🔒 관리자 모드 (방문자 확인)", expanded=Fa
             st.caption("최근 14일 일별 방문자")
             st.bar_chart(pd.Series(recent_daily, name="방문자"))
 
-        st.caption("※ visitor_stats.json 파일에 저장됩니다. 로컬 실행/일반 재실행 시에는 유지되지만, "
-                   "Streamlit Cloud 등에서 앱을 새로 배포(reboot)하면 초기화될 수 있습니다.")
+        st.caption("※ visitor_stats.json 파일에 저장됩니다.")
     elif admin_password:
         st.error("비밀번호가 일치하지 않습니다.")
 
@@ -826,11 +817,8 @@ selected_months_count = st.sidebar.slider(
     value=6,
     step=1,
     format="최근 %d개월",
-    help="조회하고자 하는 과거 개월 수를 자유롭게 선택할 수 있습니다 (최대 24개월). "
-         "단, 시·도/시·군 전체처럼 넓은 범위를 선택하면 API 트래픽 보호를 위해 자동으로 단축될 수 있습니다."
+    help="조회하고자 하는 과거 개월 수를 자유롭게 선택할 수 있습니다 (최대 24개월)."
 )
-# target_months는 아래 6-1 섹션에서 지역 범위(target_codes_to_fetch)가 확정된 뒤,
-# 광역 조회 가드레일을 적용해서 생성한다.
 
 # [2] 이상치 정제 옵션
 filter_bulk_option = st.sidebar.checkbox(
@@ -1044,11 +1032,8 @@ else:
         target_codes_to_fetch.append((code, selected_sido, selected_sido, selected_gu_direct))
 
 # ── 6-1. 광역 조회 가드레일 (API 트래픽 보호) ──────────────────
-# '경기도 전체'처럼 시·군·구 코드가 많은 범위 + 긴 조회 기간이 겹치면
-# 국토부 API 호출 횟수가 (지역 수 × 개월 수 × 2) 로 폭증해 Streamlit Cloud
-# 메모리 초과(OOM)나 하루 API 호출 한도 소진으로 이어질 수 있어 자동으로 제한한다.
-WIDE_REGION_CODE_THRESHOLD = 10   # 이 개수를 넘는 시·군·구를 동시에 조회하면 광역 조회로 간주
-WIDE_REGION_MONTH_CAP = 6         # 광역 조회 시 최대 허용 개월 수
+WIDE_REGION_CODE_THRESHOLD = 10
+WIDE_REGION_MONTH_CAP = 6
 
 is_wide_region = len(target_codes_to_fetch) > WIDE_REGION_CODE_THRESHOLD
 if is_wide_region and selected_months_count > WIDE_REGION_MONTH_CAP:
@@ -1061,7 +1046,6 @@ if is_wide_region and selected_months_count > WIDE_REGION_MONTH_CAP:
 else:
     effective_months_count = selected_months_count
 
-# 실제 조회 기간을 기준으로 이후 로직(라벨/추세 계산 등)이 일관되게 동작하도록 반영
 selected_months_count = effective_months_count
 target_months = [(now_kst - relativedelta(months=i)).strftime('%Y%m') for i in range(selected_months_count - 1, -1, -1)]
 
@@ -1077,17 +1061,14 @@ if raw_df.empty:
         st.warning("국토교통부 API 조회 중 아래와 같은 문제가 발생하여 데이터를 가져오지 못했습니다.")
         for err in unique_errors:
             st.code(err)
-        st.info("지역코드가 변경되었거나(행정구역 개편) 서비스키 트래픽 제한일 수 있습니다. 잠시 후 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러 다시 시도해주세요.")
+        st.info("지역코드가 변경되었거나 서비스키 트래픽 제한일 수 있습니다. 잠시 후 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러 다시 시도해주세요.")
     else:
         st.warning("국토교통부 API 서버 응답이 지연되었거나 해당 지역·기간에 실거래 데이터가 없습니다. 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러주세요.")
     st.stop()
 
 # ── [데이터 정제: 1. 통매입 제외 -> 2. 평형/평단가 산출] ─────────
-# 서울/경기 전체처럼 원본 행 수가 많을 때, 예산 계산기 슬라이더 등 이 단계와 무관한
-# 위젯 조작만으로 무거운 연산이 매번 재실행되는 것을 막기 위해 별도 함수로 분리하고 캐싱한다.
 @st.cache_data(show_spinner=False)
 def prepare_dataframes(raw_trade_df: pd.DataFrame, raw_rent_input_df: pd.DataFrame, filter_bulk: bool):
-    """원본 API 응답을 정제하고 평형/평단가 파생 컬럼을 벡터화 연산으로 산출한다."""
     d = raw_trade_df.copy()
     r = raw_rent_input_df.copy()
 
@@ -1095,12 +1076,10 @@ def prepare_dataframes(raw_trade_df: pd.DataFrame, raw_rent_input_df: pd.DataFra
         d = remove_bulk_acquisitions(d, threshold=10)
 
     if not d.empty:
-        # 전용면적 -> 공급평형 환산은 행마다 동일한 산식이라 apply 대신 벡터 연산으로 처리(대용량에서 훨씬 빠름)
         raw_supply_p = (d['area'] / 3.30578) / 0.745
         d['supply_pyeong'] = raw_supply_p.round().astype(int)
         d['pyeong_exact'] = raw_supply_p
         d['pyeong_label'] = d['area'].map(lambda x: f"{x:.1f}㎡") + " (" + d['supply_pyeong'].astype(str) + "평형)"
-        # 평단가(만원/평) 산출 - 전용면적 0 등 이상치는 0으로 처리
         d['price_per_pyeong'] = np.where(d['pyeong_exact'] > 0, d['price'] / d['pyeong_exact'], 0)
 
     if not r.empty:
@@ -1228,7 +1207,6 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 # ── 8. 차트 및 동별 순위표 (차트 40% : 순위표 60%) ─────────────
 c1, c2 = st.columns([2, 3])
 
-# [수정] 지역명 중복 표기 제거
 if selected_sido == "경기도":
     if selected_city == "경기도 전체":
         display_title = "경기도 전체"
@@ -1328,7 +1306,6 @@ st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 # ── 9. 추천 단지 TOP 15 (슬라이더 개월수 맞춤 변동 추세 및 전세가율) ───
 trend_label = f"{selected_months_count}개월 변동" if selected_months_count > 1 else "변동률"
 
-# [수정] 헤더 타이틀에 슬라이더 조회 개월 수 표기
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 최근 {selected_months_count}개월 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -1355,20 +1332,14 @@ else:
         late_fixed_months = all_period_months
         first_half_months = all_period_months
 
-    # ── 9-1. TOP15 후보 사전 압축 (서울/경기 전체처럼 단지 수가 많을 때 속도 저하 방지) ──
-    # 최종적으로 거래건수 기준 TOP15만 노출하므로, 전체 단지에 무거운 집계
-    # (아래 aggregate_apt_metrics의 groupby.apply)를 다 돌리지 않고 거래건수 상위
-    # 후보만 추려서 그 위에서만 계산한다. 결과에 영향 없이 계산량만 줄이는 최적화다.
+    # TOP15 후보 사전 압축
     GROUP_KEYS = ['city', 'gu', 'dong', 'apt', 'supply_pyeong']
     FINAL_TOP_N = 15
-    CANDIDATE_SANITY_CAP = 300  # 동률이 극단적으로 많을 때를 대비한 상한(사실상 거의 발동 안 함)
+    CANDIDATE_SANITY_CAP = 300
 
     group_sizes = affordable_df.groupby(GROUP_KEYS).size().sort_values(ascending=False)
     candidates_limited = len(group_sizes) > FINAL_TOP_N
     if candidates_limited:
-        # 단순히 상위 N개를 자르면 15등 근처에서 거래건수가 동률인 단지가 잘려나가
-        # 최종 정렬 결과가 달라질 수 있다. 그래서 '15등의 거래건수 값 이상'인 단지를
-        # 전부 후보로 남겨서, 최종 TOP15 결과가 전체 계산과 항상 동일하도록 보장한다.
         size_threshold = group_sizes.iloc[FINAL_TOP_N - 1]
         top_candidate_index = group_sizes[group_sizes >= size_threshold].index[:CANDIDATE_SANITY_CAP]
         candidate_keys_df = pd.DataFrame(top_candidate_index.tolist(), columns=GROUP_KEYS)
@@ -1376,8 +1347,7 @@ else:
     else:
         candidate_df = affordable_df
 
-    # 전세 데이터 사전 집계 (단지+평형별 최근 전세가 및 6개월 전세 변동률)
-    # 위에서 추린 후보 단지에 대해서만 계산하면 충분하다.
+    # 전세 데이터 사전 집계
     rent_dict = {}
     if not view_rent_df.empty:
         clean_rent_df = view_rent_df[view_rent_df['floor'] > 3]
@@ -1387,7 +1357,6 @@ else:
             clean_rent_df = clean_rent_df.merge(candidate_keys_df, on=GROUP_KEYS, how='inner')
 
         for (c, g, d, a, p), r_group in clean_rent_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']):
-            # 1) 최근 전세가
             r_recent = r_group[r_group['month'].isin(late_fixed_months)]
             if not r_recent.empty:
                 r_price_recent = r_recent['deposit'].mean()
@@ -1395,7 +1364,6 @@ else:
                 r_latest_month = r_group['month'].max()
                 r_price_recent = r_group[r_group['month'] == r_latest_month]['deposit'].mean()
 
-            # 2) 초기 전세가
             r_base = r_group[r_group['month'].isin(early_fixed_months)]
             if not r_base.empty:
                 r_price_base = r_base['deposit'].mean()
@@ -1407,7 +1375,6 @@ else:
                     r_earliest_month = r_group['month'].min()
                     r_price_base = r_group[r_group['month'] == r_earliest_month]['deposit'].mean()
 
-            # 3) 전세 변동률
             if selected_months_count > 1 and r_price_base > 0:
                 rent_trend = ((r_price_recent - r_price_base) / r_price_base) * 100
             else:
@@ -1523,7 +1490,6 @@ else:
             loc_txt = html.escape(f"{row['city']} {row['gu']} {row['dong']} · {row['전용면적_평형']}")
             trend_badge_html = row['상태배지']
             
-            # 전세 및 전세 기간 변동 안내
             if row['전세가율_fmt'] != "-":
                 jeonse_trend_str = f"전세 {trend_label} {row['전세변동_fmt']}" if row['전세변동_fmt'] != "-" else ""
                 jeonse_html = f'<div class="rank-jeonse-box">전세 {row["최근전세가_fmt"]} (<b>전세가율 {row["전세가율_fmt"]}</b>)<br><span style="font-size:0.71rem; color:var(--ink-secondary);">{jeonse_trend_str}</span></div>'
@@ -1548,7 +1514,7 @@ else:
                 st.markdown(card_html, unsafe_allow_html=True)
         st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
-    # 4위 이하 단지 표 (전세가율을 거래건수 앞으로 배치 & 12개 행 전체가 한 번에 보이도록 높이 자동 확장)
+    # 4위 이하 단지 표 ([수정] '평단가(만원)'를 '최근 매매가' 앞으로 스왑)
     rest = apt_rank.iloc[3:].copy()
     if not rest.empty:
         rest['매매기간변동'] = rest['변동률'].apply(format_trend_text)
@@ -1556,16 +1522,15 @@ else:
 
         rest_display = rest[[
             'city', 'gu', 'dong', 'apt', '전용면적_평형', '전세가율_fmt', '거래건수',
-            '최근실거래가_fmt', '평단가_fmt', '매매기간변동', '최근전세가_fmt', '전세변동_fmt'
+            '평단가_fmt', '최근실거래가_fmt', '매매기간변동', '최근전세가_fmt', '전세변동_fmt'
         ]].copy()
         rest_display.columns = [
             '시·군', '구', '법정동', '단지명', '면적(공급평형)', '전세가율', '거래건수',
-            '최근 매매가', '평단가(만원)', f'매매 {trend_label}', '최근 전세가', f'전세 {trend_label}'
+            '평단가(만원)', '최근 매매가', f'매매 {trend_label}', '최근 전세가', f'전세 {trend_label}'
         ]
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
         
-        # [수정] 4~15등(최대 12개 행)이 스크롤 없이 완전히 보이도록 동적 높이 지정
         table_height = (len(rest_display) + 1) * 36 + 15
         
         st.dataframe(
