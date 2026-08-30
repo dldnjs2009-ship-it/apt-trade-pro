@@ -139,7 +139,12 @@ div[data-testid="stRadio"] > div {
     font-size: .77rem; color: var(--jeonse-blue); font-weight: 700; line-height: 1.4;
 }
 
-/* 비교 카드 */
+/* 비교 설정 카드 */
+.compare-setup-card {
+    background: var(--surface); border-radius: 14px; padding: 16px;
+    border: 1px solid var(--border-hairline); box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+    margin-bottom: 12px;
+}
 .compare-box {
     background: var(--surface); border-radius: 12px; padding: 14px;
     border: 1px solid var(--border-hairline); box-shadow: 0 2px 6px rgba(0,0,0,0.03);
@@ -783,6 +788,24 @@ def fetch_all_target_records(target_list_tuples, target_months_tuple, fetch_rent
 
     return pd.DataFrame(all_trade_records), pd.DataFrame(all_rent_records), error_messages
 
+
+# ── [신규] 비교 모드용 단지/평형 메타데이터 추출 캐시 함수 ─────
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_region_apt_metadata(code: str, sido: str, city: str, gu: str):
+    """시·군·구 내 최근 실거래된 아파트 단지명 및 공급평형 목록을 빠르게 추출"""
+    recent_12m = tuple([(now_kst - relativedelta(months=i)).strftime('%Y%m') for i in range(11, -1, -1)])
+    t_df, _, _ = fetch_all_target_records(((code, sido, city, gu),), recent_12m, fetch_rent=False)
+    if t_df.empty:
+        return {}
+    raw_supply_p = (t_df['area'] / 3.30578) / 0.745
+    t_df['supply_pyeong'] = raw_supply_p.round().astype(int)
+    
+    apt_meta = {}
+    for apt, g in t_df.groupby('apt'):
+        pyeongs = sorted([int(p) for p in g['supply_pyeong'].unique() if p > 0])
+        apt_meta[apt] = pyeongs
+    return apt_meta
+
 # ── 5. 사이드바 설정 ─────────────────────────────────────
 st.sidebar.markdown("### ⚙️ 대시보드 설정")
 
@@ -977,7 +1000,7 @@ else:
         unsafe_allow_html=True
     )
 
-# ── 6. 메인 UI 및 계층형 지역 필터 ────────────────────────
+# ── 6. 메인 UI ──────────────────────────────────────────
 st.markdown("""
 <div class="hero-banner">
   <h1>🏠 전국 아파트 실거래가 및 내집마련 대시보드</h1>
@@ -998,107 +1021,141 @@ analysis_mode = st.radio(
 # ═════════════════════════════════════════════════════════
 if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
     st.markdown('<div class="section-title">📈 관심 아파트 단지별 실거래 시세 비교 (최대 20년)</div>', unsafe_allow_html=True)
-    st.caption("최대 3개 단지를 지정하여 과거부터 현재까지의 실거래가 추이와 가격 격차(Gap)를 한 그래프에서 비교합니다. (매매 전용 경량 호출)")
+    st.caption("시·군·구를 선택하면 해당 지역의 실거래 단지명과 공급평형이 자동으로 검색됩니다. 단지를 선택한 후 하단의 [비교 분석 시작] 버튼을 눌러주세요.")
 
-    with st.form("compare_apt_form"):
-        col_dur, col_dummy = st.columns([1, 2])
-        with col_dur:
-            period_label = st.selectbox(
-                "📅 비교 기간 선택",
-                ["최근 1년 (12개월)", "최근 3년 (36개월)", "최근 5년 (60개월)", "최근 10년 (120개월)", "최근 20년 (2006년 실거래 도입 이후 전체)"],
-                index=1
-            )
+    col_dur, _ = st.columns([1, 2])
+    with col_dur:
+        period_label = st.selectbox(
+            "📅 비교 기간 선택",
+            ["최근 1년 (12개월)", "최근 3년 (36개월)", "최근 5년 (60개월)", "최근 10년 (120개월)", "최근 20년 (2006년 실거래 도입 이후 전체)"],
+            index=1
+        )
 
-        PERIOD_MONTH_MAP = {
-            "최근 1년 (12개월)": 12,
-            "최근 3년 (36개월)": 36,
-            "최근 5년 (60개월)": 60,
-            "최근 10년 (120개월)": 120,
-            "최근 20년 (2006년 실거래 도입 이후 전체)": (now_kst.year - 2006) * 12 + now_kst.month
-        }
-        cmp_months_count = PERIOD_MONTH_MAP[period_label]
-        cmp_target_months = tuple([(now_kst - relativedelta(months=i)).strftime('%Y%m') for i in range(cmp_months_count - 1, -1, -1)])
+    PERIOD_MONTH_MAP = {
+        "최근 1년 (12개월)": 12,
+        "최근 3년 (36개월)": 36,
+        "최근 5년 (60개월)": 60,
+        "최근 10년 (120개월)": 120,
+        "최근 20년 (2006년 실거래 도입 이후 전체)": (now_kst.year - 2006) * 12 + now_kst.month
+    }
+    cmp_months_count = PERIOD_MONTH_MAP[period_label]
+    cmp_target_months = tuple([(now_kst - relativedelta(months=i)).strftime('%Y%m') for i in range(cmp_months_count - 1, -1, -1)])
 
-        st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
-        col_a, col_b, col_c = st.columns(3)
+    col_a, col_b, col_c = st.columns(3)
 
-        # ── 단지 1 입력 ──
-        with col_a:
-            st.markdown('<div class="step-chip">🔵 단지 1 (기준)</div>', unsafe_allow_html=True)
-            sido_1 = st.selectbox("시·도 1", list(REGION_STRUCTURE.keys()), index=0, key="cmp_sido_1")
-            sido_data_1 = REGION_STRUCTURE[sido_1]
-            if sido_1 == "경기도":
-                city_1 = st.selectbox("시·군 1", list(sido_data_1.keys()), index=1, key="cmp_city_1")
-                gu_1 = st.selectbox("구 1", list(sido_data_1[city_1].keys()), index=0, key="cmp_gu_1")
-                code_1 = sido_data_1[city_1][gu_1]
+    # ── [단지 1 설정] ──
+    with col_a:
+        st.markdown('<div class="step-chip">🔵 단지 1 (기준)</div>', unsafe_allow_html=True)
+        sido_1 = st.selectbox("시·도 1", list(REGION_STRUCTURE.keys()), index=0, key="cmp_sido_1")
+        sido_data_1 = REGION_STRUCTURE[sido_1]
+        if sido_1 == "경기도":
+            city_1 = st.selectbox("시·군 1", list(sido_data_1.keys()), index=list(sido_data_1.keys()).index("수원시") if "수원시" in sido_data_1 else 0, key="cmp_city_1")
+            gu_1 = st.selectbox("구 1", list(sido_data_1[city_1].keys()), index=0, key="cmp_gu_1")
+            code_1 = sido_data_1[city_1][gu_1]
+        else:
+            city_1 = sido_1
+            gu_1 = st.selectbox("구 1", list(sido_data_1.keys()), index=0, key="cmp_gu_1")
+            code_1 = sido_data_1[gu_1]
+
+        meta_1 = get_region_apt_metadata(code_1, sido_1, city_1, gu_1)
+        apt_list_1 = sorted(list(meta_1.keys()))
+        if apt_list_1:
+            apt_name_1 = st.selectbox("단지명 1 (선택 또는 검색)", apt_list_1, key="cmp_apt_1")
+            available_p_1 = meta_1.get(apt_name_1, [])
+            p_options_1 = ["전체 평형"] + [f"{p}평형" for p in available_p_1]
+            p_sel_1 = st.selectbox("공급평형 1", p_options_1, key="cmp_p_1")
+            pyeong_1 = int(p_sel_1.replace("평형", "")) if p_sel_1 != "전체 평형" else 0
+        else:
+            apt_name_1 = st.text_input("단지명 1 (직접 입력)", value="", key="cmp_apt_1_raw")
+            pyeong_1 = st.number_input("공급평형 1 (0은 전체)", min_value=0, max_value=120, value=0, key="cmp_p_1_raw")
+
+    # ── [단지 2 설정] ──
+    with col_b:
+        st.markdown('<div class="step-chip">🟠 단지 2 (비교)</div>', unsafe_allow_html=True)
+        sido_2 = st.selectbox("시·도 2", list(REGION_STRUCTURE.keys()), index=0, key="cmp_sido_2")
+        sido_data_2 = REGION_STRUCTURE[sido_2]
+        if sido_2 == "경기도":
+            city_2 = st.selectbox("시·군 2", list(sido_data_2.keys()), index=list(sido_data_2.keys()).index("수원시") if "수원시" in sido_data_2 else 0, key="cmp_city_2")
+            gu_2 = st.selectbox("구 2", list(sido_data_2[city_2].keys()), index=0, key="cmp_gu_2")
+            code_2 = sido_data_2[city_2][gu_2]
+        else:
+            city_2 = sido_2
+            gu_2 = st.selectbox("구 2", list(sido_data_2.keys()), index=0, key="cmp_gu_2")
+            code_2 = sido_data_2[gu_2]
+
+        meta_2 = get_region_apt_metadata(code_2, sido_2, city_2, gu_2)
+        apt_list_2 = sorted(list(meta_2.keys()))
+        if apt_list_2:
+            default_idx_2 = min(1, len(apt_list_2) - 1)
+            apt_name_2 = st.selectbox("단지명 2 (선택 또는 검색)", apt_list_2, index=default_idx_2, key="cmp_apt_2")
+            available_p_2 = meta_2.get(apt_name_2, [])
+            p_options_2 = ["전체 평형"] + [f"{p}평형" for p in available_p_2]
+            p_sel_2 = st.selectbox("공급평형 2", p_options_2, key="cmp_p_2")
+            pyeong_2 = int(p_sel_2.replace("평형", "")) if p_sel_2 != "전체 평형" else 0
+        else:
+            apt_name_2 = st.text_input("단지명 2 (직접 입력)", value="", key="cmp_apt_2_raw")
+            pyeong_2 = st.number_input("공급평형 2 (0은 전체)", min_value=0, max_value=120, value=0, key="cmp_p_2_raw")
+
+    # ── [단지 3 설정 (선택사항)] ──
+    with col_c:
+        st.markdown('<div class="step-chip">🟢 단지 3 (선택사항)</div>', unsafe_allow_html=True)
+        sido_3 = st.selectbox("시·도 3", ["(선택 안함)"] + list(REGION_STRUCTURE.keys()), index=0, key="cmp_sido_3")
+        if sido_3 != "(선택 안함)":
+            sido_data_3 = REGION_STRUCTURE[sido_3]
+            if sido_3 == "경기도":
+                city_3 = st.selectbox("시·군 3", list(sido_data_3.keys()), index=0, key="cmp_city_3")
+                gu_3 = st.selectbox("구 3", list(sido_data_3[city_3].keys()), index=0, key="cmp_gu_3")
+                code_3 = sido_data_3[city_3][gu_3]
             else:
-                city_1 = sido_1
-                gu_1 = st.selectbox("구 1", list(sido_data_1.keys()), index=0, key="cmp_gu_1")
-                code_1 = sido_data_1[gu_1]
-            apt_name_1 = st.text_input("단지명 1", value="황골마을주공1", placeholder="예: 황골마을주공1", key="cmp_apt_1")
-            pyeong_1 = st.number_input("공급평형 1 (0은 전체)", min_value=0, max_value=120, value=24, step=1, key="cmp_p_1")
+                city_3 = sido_3
+                gu_3 = st.selectbox("구 3", list(sido_data_3.keys()), index=0, key="cmp_gu_3")
+                code_3 = sido_data_3[gu_3]
 
-        # ── 단지 2 입력 ──
-        with col_b:
-            st.markdown('<div class="step-chip">🟠 단지 2 (비교)</div>', unsafe_allow_html=True)
-            sido_2 = st.selectbox("시·도 2", list(REGION_STRUCTURE.keys()), index=0, key="cmp_sido_2")
-            sido_data_2 = REGION_STRUCTURE[sido_2]
-            if sido_2 == "경기도":
-                city_2 = st.selectbox("시·군 2", list(sido_data_2.keys()), index=1, key="cmp_city_2")
-                gu_2 = st.selectbox("구 2", list(sido_data_2[city_2].keys()), index=0, key="cmp_gu_2")
-                code_2 = sido_data_2[city_2][gu_2]
+            meta_3 = get_region_apt_metadata(code_3, sido_3, city_3, gu_3)
+            apt_list_3 = sorted(list(meta_3.keys()))
+            if apt_list_3:
+                apt_name_3 = st.selectbox("단지명 3 (선택 또는 검색)", apt_list_3, key="cmp_apt_3")
+                available_p_3 = meta_3.get(apt_name_3, [])
+                p_options_3 = ["전체 평형"] + [f"{p}평형" for p in available_p_3]
+                p_sel_3 = st.selectbox("공급평형 3", p_options_3, key="cmp_p_3")
+                pyeong_3 = int(p_sel_3.replace("평형", "")) if p_sel_3 != "전체 평형" else 0
             else:
-                city_2 = sido_2
-                gu_2 = st.selectbox("구 2", list(sido_data_2.keys()), index=0, key="cmp_gu_2")
-                code_2 = sido_data_2[gu_2]
-            apt_name_2 = st.text_input("단지명 2", value="벽적골9단지주공", placeholder="예: 벽적골9단지주공", key="cmp_apt_2")
-            pyeong_2 = st.number_input("공급평형 2 (0은 전체)", min_value=0, max_value=120, value=24, step=1, key="cmp_p_2")
+                apt_name_3 = st.text_input("단지명 3 (직접 입력)", value="", key="cmp_apt_3_raw")
+                pyeong_3 = st.number_input("공급평형 3 (0은 전체)", min_value=0, max_value=120, value=0, key="cmp_p_3_raw")
+        else:
+            code_3, city_3, gu_3, apt_name_3, pyeong_3 = None, None, None, "", 0
 
-        # ── 단지 3 입력 (선택) ──
-        with col_c:
-            st.markdown('<div class="step-chip">🟢 단지 3 (선택사항)</div>', unsafe_allow_html=True)
-            sido_3 = st.selectbox("시·도 3", ["(선택 안함)"] + list(REGION_STRUCTURE.keys()), index=0, key="cmp_sido_3")
-            if sido_3 != "(선택 안함)":
-                sido_data_3 = REGION_STRUCTURE[sido_3]
-                if sido_3 == "경기도":
-                    city_3 = st.selectbox("시·군 3", list(sido_data_3.keys()), index=0, key="cmp_city_3")
-                    gu_3 = st.selectbox("구 3", list(sido_data_3[city_3].keys()), index=0, key="cmp_gu_3")
-                    code_3 = sido_data_3[city_3][gu_3]
-                else:
-                    city_3 = sido_3
-                    gu_3 = st.selectbox("구 3", list(sido_data_3.keys()), index=0, key="cmp_gu_3")
-                    code_3 = sido_data_3[gu_3]
-                apt_name_3 = st.text_input("단지명 3", value="", placeholder="예: 광교자연앤힐스테이트", key="cmp_apt_3")
-                pyeong_3 = st.number_input("공급평형 3 (0은 전체)", min_value=0, max_value=120, value=0, step=1, key="cmp_p_3")
-            else:
-                code_3, city_3, gu_3, apt_name_3, pyeong_3 = None, None, None, "", 0
-
-        submit_compare = st.form_submit_button("🚀 단지별 시세 비교 분석 시작", use_container_width=True)
+    st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+    submit_compare = st.button("🚀 단지별 시세 비교 분석 시작", type="primary", use_container_width=True)
 
     if submit_compare:
         targets_to_query = []
         apt_configs = []
 
-        if apt_name_1.strip():
+        if apt_name_1 and apt_name_1.strip():
             targets_to_query.append((code_1, sido_1, city_1, gu_1))
-            apt_configs.append({"name": apt_name_1.strip(), "pyeong": pyeong_1, "color": "#2a78d6", "label": f"{apt_name_1.strip()} ({pyeong_1}평형)" if pyeong_1 > 0 else apt_name_1.strip()})
-        if apt_name_2.strip():
+            lbl_1 = f"{apt_name_1.strip()} ({pyeong_1}평형)" if pyeong_1 > 0 else apt_name_1.strip()
+            apt_configs.append({"name": apt_name_1.strip(), "pyeong": pyeong_1, "color": "#2a78d6", "label": lbl_1})
+
+        if apt_name_2 and apt_name_2.strip():
             targets_to_query.append((code_2, sido_2, city_2, gu_2))
-            apt_configs.append({"name": apt_name_2.strip(), "pyeong": pyeong_2, "color": "#eb6834", "label": f"{apt_name_2.strip()} ({pyeong_2}평형)" if pyeong_2 > 0 else apt_name_2.strip()})
-        if sido_3 != "(선택 안함)" and apt_name_3.strip():
+            lbl_2 = f"{apt_name_2.strip()} ({pyeong_2}평형)" if pyeong_2 > 0 else apt_name_2.strip()
+            apt_configs.append({"name": apt_name_2.strip(), "pyeong": pyeong_2, "color": "#eb6834", "label": lbl_2})
+
+        if sido_3 != "(선택 안함)" and apt_name_3 and apt_name_3.strip():
             targets_to_query.append((code_3, sido_3, city_3, gu_3))
-            apt_configs.append({"name": apt_name_3.strip(), "pyeong": pyeong_3, "color": "#0ca30c", "label": f"{apt_name_3.strip()} ({pyeong_3}평형)" if pyeong_3 > 0 else apt_name_3.strip()})
+            lbl_3 = f"{apt_name_3.strip()} ({pyeong_3}평형)" if pyeong_3 > 0 else apt_name_3.strip()
+            apt_configs.append({"name": apt_name_3.strip(), "pyeong": pyeong_3, "color": "#0ca30c", "label": lbl_3})
 
         if not apt_configs:
-            st.warning("비교할 단지명을 1개 이상 입력해주세요.")
+            st.warning("비교할 단지를 1개 이상 선택해주세요.")
         else:
-            with st.spinner("비교 대상 단지의 실거래 데이터를 조회 중입니다... (매매 전용 경량 호출)"):
+            with st.spinner("비교 대상 단지의 과거 실거래 데이터를 분석 중입니다... (매매 전용 경량 호출)"):
                 cmp_trade_df, _, _ = fetch_all_target_records(tuple(set(targets_to_query)), cmp_target_months, fetch_rent=False)
 
             if cmp_trade_df.empty:
                 st.warning("해당 기간에 등록된 실거래 데이터가 없습니다.")
             else:
-                # 데이터 전처리
                 raw_supply_p_cmp = (cmp_trade_df['area'] / 3.30578) / 0.745
                 cmp_trade_df['supply_pyeong'] = raw_supply_p_cmp.round().astype(int)
                 clean_cmp_df = cmp_trade_df[(cmp_trade_df['floor'] > 3) & (cmp_trade_df['deal_type'] != '직거래')]
@@ -1114,7 +1171,7 @@ if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
                         sub = sub[sub['supply_pyeong'] == cfg['pyeong']]
 
                     if sub.empty:
-                        st.info(f"⚠️ '{cfg['name']}' 단지의 조건에 맞는 실거래 데이터가 없습니다.")
+                        st.info(f"⚠️ '{cfg['name']}' 단지의 조건에 맞는 실거래 데이터가 조회 기간 내에 없습니다.")
                         continue
 
                     monthly_series = sub.groupby('month')['price'].mean().sort_index()
@@ -1124,7 +1181,7 @@ if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
                         mode='lines+markers',
                         name=cfg['label'],
                         line=dict(color=cfg['color'], width=2.5),
-                        marker=dict(size=5, color=cfg['color']),
+                        marker=dict(size=4, color=cfg['color']),
                         hovertemplate="%{x}<br><b>" + cfg['label'] + ": %{y:,.0f}만원</b><extra></extra>"
                     ))
 
@@ -1155,7 +1212,6 @@ if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
 
                 st.plotly_chart(fig_cmp, use_container_width=True, config={"displayModeBar": False})
 
-                # 요약 카드 및 가격차이 Gap 분석 출력
                 if summary_metrics:
                     cols_sum = st.columns(len(summary_metrics))
                     for idx, sm in enumerate(summary_metrics):
@@ -1584,10 +1640,10 @@ else:
                                     <div>{badge_html}</div>
                                     <div class="rank-price">{row['올해현재가_fmt']}원</div>
                                     <div class="rank-meta">2025년 최고가 {row['작년최고가_fmt']}원</div>
-                                </div>
-                                <div class="rank-jeonse-box">{jeonse_str}</div>
                             </div>
-                            """, unsafe_allow_html=True)
+                            <div class="rank-jeonse-box">{jeonse_str}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
 
                     st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
