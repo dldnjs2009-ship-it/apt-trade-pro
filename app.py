@@ -553,8 +553,9 @@ REGION_STRUCTURE = {
     }
 }
 
-# ── 3. 단일 월 매매 및 전세 수집 태스크 ───────────────────────
-def fetch_trade_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
+# ── 3. 단일 월 매매 및 전세 수집 (1개월 단위 캐싱) ─────────────
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_trade_month_cached(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
     task_records = []
     page = 1
     last_error = None
@@ -645,7 +646,8 @@ def fetch_trade_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str)
     return task_records, last_error
 
 
-def fetch_rent_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_rent_month_cached(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
     task_records = []
     page = 1
     last_error = None
@@ -730,8 +732,7 @@ def fetch_rent_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
 
     return task_records, last_error
 
-# ── 4. 병렬 분산 수집 & 캐싱 ──────────────────────────────
-@st.cache_data(ttl=86400)
+# ── 4. 병렬 분산 수집 (월별 캐시 공유) ──────────────────────
 def fetch_all_target_records(target_list_tuples, target_months_tuple):
     trade_tasks = []
     rent_tasks = []
@@ -750,8 +751,8 @@ def fetch_all_target_records(target_list_tuples, target_months_tuple):
     error_messages = []
 
     with ThreadPoolExecutor(max_workers=16) as executor:
-        trade_futures = [executor.submit(fetch_trade_task, *task) for task in trade_tasks]
-        rent_futures = [executor.submit(fetch_rent_task, *task) for task in rent_tasks]
+        trade_futures = [executor.submit(fetch_trade_month_cached, *task) for task in trade_tasks]
+        rent_futures = [executor.submit(fetch_rent_month_cached, *task) for task in rent_tasks]
 
         for future in as_completed(trade_futures):
             try:
@@ -1059,7 +1060,7 @@ if analysis_mode == "🏆 작년 전고점 대비 상승/하락 분석" and is_w
         f"🛡️ **[공공데이터 API 무료 트래픽 보호 안내]**\n\n"
         f"**'작년 전고점 대비 상승/하락 분석'** 모드는 2025년 전체와 2026년 실거래가를 교차 비교하므로 대량의 데이터가 호출됩니다.\n\n"
         f"API 일일 무료 한도를 보호하기 위해 **광역 전체({selected_sido} 전체) 조회는 제한**되오니, "
-        f"상단 필터에서 **특정 시·군(예: 수원시, 화성시) 또는 구(예: 송파구, 강남구)**를 선택해주세요."
+        f"상단 필터에서 **특정 시·군(예: 수원시, 화성시, 평택시) 또는 구(예: 송파구, 강남구)**를 선택해주세요."
     )
     st.stop()
 
@@ -1280,35 +1281,42 @@ if analysis_mode == "🏆 작년 전고점 대비 상승/하락 분석":
         """
         st.markdown(comp_kpi_html, unsafe_allow_html=True)
 
-        # ── 전고점 분석 전용 시각화 차트 2종 ──
+        # ── 전고점 분석 전용 시각화 차트 2종 (가로형 게이지 바 차트) ──
         c1, c2 = st.columns([2, 3])
 
         with c1:
             st.markdown('<div class="section-title">🌡️ 시장 회복 단계 분포</div>', unsafe_allow_html=True)
             
-            # 4단계 구간 집계
             cnt_surge = len(merged_compare[merged_compare['변동률'] >= 3.0])
             cnt_flat = len(merged_compare[(merged_compare['변동률'] >= 0.0) & (merged_compare['변동률'] < 3.0)])
             cnt_adjust = len(merged_compare[(merged_compare['변동률'] >= -5.0) & (merged_compare['변동률'] < 0.0)])
             cnt_drop = len(merged_compare[merged_compare['변동률'] < -5.0])
 
-            fig_pie = go.Figure(go.Pie(
-                labels=['🚀 전고점 돌파 (+3%↑)', '⚖️ 전고점 수준 (0~3%)', '📉 완만한 조정 (-5~0%)', '🧊 낙폭 과대 (-5%↓)'],
-                values=[cnt_surge, cnt_flat, cnt_adjust, cnt_drop],
-                hole=0.48,
-                marker=dict(colors=['#e53e3e', '#eb6834', '#a0aec0', '#2a78d6']),
-                textinfo='percent+label',
-                textposition='inside',
-                showlegend=False
+            categories = ['🚀 전고점 돌파 (+3%↑)', '⚖️ 전고점 수준 (0~3%)', '📉 완만한 조정 (-5~0%)', '🧊 낙폭 과대 (-5%↓)']
+            counts = [cnt_surge, cnt_flat, cnt_adjust, cnt_drop]
+            pcts = [(c / total_matched_apts * 100) if total_matched_apts > 0 else 0 for c in counts]
+            colors = ['#e53e3e', '#eb6834', '#a0aec0', '#2a78d6']
+
+            fig_bar = go.Figure(go.Bar(
+                y=categories[::-1],
+                x=counts[::-1],
+                orientation='h',
+                marker_color=colors[::-1],
+                text=[f"<b>{c:,}개</b> ({p:.1f}%)" for c, p in zip(counts[::-1], pcts[::-1])],
+                textposition='outside',
+                cliponaxis=False,
+                hovertemplate="%{y}: <b>%{x}개</b><extra></extra>"
             ))
-            fig_pie.update_layout(
+            fig_bar.update_layout(
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
-                margin=dict(l=10, r=10, t=10, b=10),
+                margin=dict(l=10, r=80, t=10, b=10),
                 height=280,
+                xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+                yaxis=dict(showgrid=False, linecolor="#c3c2b7"),
                 font=dict(family="Pretendard, sans-serif", color="#52514e", size=11)
             )
-            st.plotly_chart(fig_pie, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
 
         with c2:
             st.markdown(f'<div class="section-title">🥇 {display_title} 동별 전고점 돌파 단지 순위</div>', unsafe_allow_html=True)
@@ -1386,7 +1394,7 @@ if analysis_mode == "🏆 작년 전고점 대비 상승/하락 분석":
 
                 st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
-                # 4~15등 표 ('평단가', '26년 거래수' 삭제 & 논리적 컬럼 재배치)
+                # 4~15등 표 ('평단가', '26년 거래수' 삭제 & 논리적 재배치)
                 rest_g = top_gainers.iloc[3:].copy()
                 if not rest_g.empty:
                     rest_g_disp = rest_g[[
@@ -1429,7 +1437,7 @@ if analysis_mode == "🏆 작년 전고점 대비 상승/하락 분석":
 
                 st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
-                # 4~15등 표 ('평단가', '26년 거래수' 삭제 & 논리적 컬럼 재배치)
+                # 4~15등 표 ('평단가', '26년 거래수' 삭제 & 논리적 재배치)
                 rest_l = top_losers.iloc[3:].copy()
                 if not rest_l.empty:
                     rest_l_disp = rest_l[[
@@ -1798,7 +1806,7 @@ else:
                 st.markdown(card_html, unsafe_allow_html=True)
         st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
-    # 4위 이하 단지 표 ('평단가'를 '최근 매매가' 앞으로 배치)[cite: 4]
+    # 4위 이하 단지 표
     rest = apt_rank.iloc[3:].copy()
     if not rest.empty:
         rest['매매기간변동'] = rest['변동률'].apply(format_trend_text)
