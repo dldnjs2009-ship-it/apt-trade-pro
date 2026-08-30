@@ -1082,26 +1082,35 @@ if raw_df.empty:
         st.warning("국토교통부 API 서버 응답이 지연되었거나 해당 지역·기간에 실거래 데이터가 없습니다. 사이드바의 [🔄 캐시 초기화 및 데이터 다시 불러오기]를 눌러주세요.")
     st.stop()
 
-# ── [데이터 정제: 1. 통매입 제외 -> 2. 평형 산출] ─────────────
-df = raw_df.copy()
-rent_df = raw_rent_df.copy()
+# ── [데이터 정제: 1. 통매입 제외 -> 2. 평형/평단가 산출] ─────────
+# 서울/경기 전체처럼 원본 행 수가 많을 때, 예산 계산기 슬라이더 등 이 단계와 무관한
+# 위젯 조작만으로 무거운 연산이 매번 재실행되는 것을 막기 위해 별도 함수로 분리하고 캐싱한다.
+@st.cache_data(show_spinner=False)
+def prepare_dataframes(raw_trade_df: pd.DataFrame, raw_rent_input_df: pd.DataFrame, filter_bulk: bool):
+    """원본 API 응답을 정제하고 평형/평단가 파생 컬럼을 벡터화 연산으로 산출한다."""
+    d = raw_trade_df.copy()
+    r = raw_rent_input_df.copy()
 
-if filter_bulk_option:
-    df = remove_bulk_acquisitions(df, threshold=10)
+    if filter_bulk:
+        d = remove_bulk_acquisitions(d, threshold=10)
 
-# 매매 데이터 평형 산출
-pyeong_info = df['area'].apply(get_pyeong_group_key)
-df['supply_pyeong'] = [p[0] for p in pyeong_info]
-df['pyeong_label'] = [p[1] for p in pyeong_info]
-df['pyeong_exact'] = [p[2] for p in pyeong_info]
+    if not d.empty:
+        # 전용면적 -> 공급평형 환산은 행마다 동일한 산식이라 apply 대신 벡터 연산으로 처리(대용량에서 훨씬 빠름)
+        raw_supply_p = (d['area'] / 3.30578) / 0.745
+        d['supply_pyeong'] = raw_supply_p.round().astype(int)
+        d['pyeong_exact'] = raw_supply_p
+        d['pyeong_label'] = d['area'].map(lambda x: f"{x:.1f}㎡") + " (" + d['supply_pyeong'].astype(str) + "평형)"
+        # 평단가(만원/평) 산출 - 전용면적 0 등 이상치는 0으로 처리
+        d['price_per_pyeong'] = np.where(d['pyeong_exact'] > 0, d['price'] / d['pyeong_exact'], 0)
 
-# 평단가(만원/평) 산출 - 전용면적 0 등 이상치는 0으로 처리
-df['price_per_pyeong'] = np.where(df['pyeong_exact'] > 0, df['price'] / df['pyeong_exact'], 0)
+    if not r.empty:
+        raw_supply_p_r = (r['area'] / 3.30578) / 0.745
+        r['supply_pyeong'] = raw_supply_p_r.round().astype(int)
 
-# 전세 데이터 평형 산출
-if not rent_df.empty:
-    rent_pyeong_info = rent_df['area'].apply(get_pyeong_group_key)
-    rent_df['supply_pyeong'] = [p[0] for p in rent_pyeong_info]
+    return d, r
+
+
+df, rent_df = prepare_dataframes(raw_df, raw_rent_df, filter_bulk_option)
 
 # 면적 필터 적용
 if selected_quick_pyeong and len(selected_quick_pyeong) < len(quick_pyeong_options):
@@ -1346,12 +1355,36 @@ else:
         late_fixed_months = all_period_months
         first_half_months = all_period_months
 
+    # ── 9-1. TOP15 후보 사전 압축 (서울/경기 전체처럼 단지 수가 많을 때 속도 저하 방지) ──
+    # 최종적으로 거래건수 기준 TOP15만 노출하므로, 전체 단지에 무거운 집계
+    # (아래 aggregate_apt_metrics의 groupby.apply)를 다 돌리지 않고 거래건수 상위
+    # 후보만 추려서 그 위에서만 계산한다. 결과에 영향 없이 계산량만 줄이는 최적화다.
+    GROUP_KEYS = ['city', 'gu', 'dong', 'apt', 'supply_pyeong']
+    FINAL_TOP_N = 15
+    CANDIDATE_SANITY_CAP = 300  # 동률이 극단적으로 많을 때를 대비한 상한(사실상 거의 발동 안 함)
+
+    group_sizes = affordable_df.groupby(GROUP_KEYS).size().sort_values(ascending=False)
+    candidates_limited = len(group_sizes) > FINAL_TOP_N
+    if candidates_limited:
+        # 단순히 상위 N개를 자르면 15등 근처에서 거래건수가 동률인 단지가 잘려나가
+        # 최종 정렬 결과가 달라질 수 있다. 그래서 '15등의 거래건수 값 이상'인 단지를
+        # 전부 후보로 남겨서, 최종 TOP15 결과가 전체 계산과 항상 동일하도록 보장한다.
+        size_threshold = group_sizes.iloc[FINAL_TOP_N - 1]
+        top_candidate_index = group_sizes[group_sizes >= size_threshold].index[:CANDIDATE_SANITY_CAP]
+        candidate_keys_df = pd.DataFrame(top_candidate_index.tolist(), columns=GROUP_KEYS)
+        candidate_df = affordable_df.merge(candidate_keys_df, on=GROUP_KEYS, how='inner')
+    else:
+        candidate_df = affordable_df
+
     # 전세 데이터 사전 집계 (단지+평형별 최근 전세가 및 6개월 전세 변동률)
+    # 위에서 추린 후보 단지에 대해서만 계산하면 충분하다.
     rent_dict = {}
     if not view_rent_df.empty:
         clean_rent_df = view_rent_df[view_rent_df['floor'] > 3]
         if clean_rent_df.empty:
             clean_rent_df = view_rent_df
+        if candidates_limited:
+            clean_rent_df = clean_rent_df.merge(candidate_keys_df, on=GROUP_KEYS, how='inner')
 
         for (c, g, d, a, p), r_group in clean_rent_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']):
             # 1) 최근 전세가
@@ -1459,11 +1492,11 @@ else:
         })
 
     try:
-        apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']).apply(
+        apt_rank = candidate_df.groupby(GROUP_KEYS).apply(
             aggregate_apt_metrics, include_groups=False
         ).reset_index()
     except TypeError:
-        apt_rank = affordable_df.groupby(['city', 'gu', 'dong', 'apt', 'supply_pyeong']).apply(
+        apt_rank = candidate_df.groupby(GROUP_KEYS).apply(
             aggregate_apt_metrics
         ).reset_index()
 
