@@ -1,6 +1,9 @@
 import os
+import json
+from pathlib import Path
 import streamlit as st
 import pandas as pd
+import numpy as np
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -220,10 +223,12 @@ def format_price(x: int) -> str:
 
 
 def get_pyeong_group_key(m2: float) -> tuple:
-    """전용면적(㎡)을 분양/공급 체감 평형 그룹으로 분류."""
-    supply_p = int(round((m2 / 3.30578) / 0.745))
+    """전용면적(㎡)을 분양/공급 체감 평형 그룹으로 분류.
+    (반올림 공급평형, 표시용 라벨, 평단가 계산용 정밀 공급평형) 튜플 반환."""
+    raw_supply_p = (m2 / 3.30578) / 0.745
+    supply_p = int(round(raw_supply_p))
     label = f"{m2:.1f}㎡ ({supply_p}평형)"
-    return supply_p, label
+    return supply_p, label, raw_supply_p
 
 
 def calculate_acquisition_costs(price: int) -> dict:
@@ -345,13 +350,43 @@ RENT_API_URLS = [
     "https://apis.data.go.kr/1613000/RTMSDataSvcAptRentDev/getRTMSDataSvcAptRentDev"
 ]
 
+VISITOR_DATA_PATH = Path(__file__).parent / "visitor_stats.json"
+VISITOR_LOG_MAX = 500   # 로그 최대 보관 건수 (파일 비대화 방지)
+VISITOR_DAILY_RETENTION_DAYS = 90  # 일별 집계 보관 기간
+
+
+def _load_visitor_data_from_disk() -> dict:
+    """디스크에 저장된 방문자 통계를 불러온다. 파일이 없거나 손상된 경우 빈 값으로 시작."""
+    try:
+        if VISITOR_DATA_PATH.exists():
+            with open(VISITOR_DATA_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                data.setdefault("daily", {})
+                data.setdefault("total", 0)
+                data.setdefault("logs", [])
+                return data
+    except Exception:
+        pass
+    return {"daily": {}, "total": 0, "logs": []}
+
+
+def _save_visitor_data_to_disk(data: dict) -> None:
+    """방문자 통계를 디스크에 저장(write-through).
+    주의: Streamlit Community Cloud 등 컨테이너 기반 배포 환경은 재배포(reboot) 시
+    로컬 디스크가 초기화되므로, 이 저장은 앱이 켜져 있는 동안(재실행/슬립-웨이크 포함)의
+    지속성만 보장한다. 배포 간에도 절대 사라지지 않는 영구 저장이 필요하다면
+    Firebase/Supabase 같은 외부 저장소 연동이 필요하다."""
+    try:
+        with open(VISITOR_DATA_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass  # 디스크 쓰기에 실패해도 대시보드 본 기능에는 영향이 없도록 무시
+
+
 @st.cache_resource
 def get_visitor_storage():
-    return {
-        "daily": {},
-        "total": 0,
-        "logs": []
-    }
+    return _load_visitor_data_from_disk()
+
 
 visitor_storage = get_visitor_storage()
 now_kst = datetime.now(KST)
@@ -365,6 +400,14 @@ if "session_visited" not in st.session_state:
         "time": now_kst.strftime("%H:%M:%S"),
         "date": today_key
     })
+
+    # 오래된 로그/일별 집계 정리 (파일이 무한정 커지지 않도록)
+    if len(visitor_storage["logs"]) > VISITOR_LOG_MAX:
+        visitor_storage["logs"] = visitor_storage["logs"][-VISITOR_LOG_MAX:]
+    cutoff_date = (now_kst - timedelta(days=VISITOR_DAILY_RETENTION_DAYS)).strftime("%Y-%m-%d")
+    visitor_storage["daily"] = {d: v for d, v in visitor_storage["daily"].items() if d >= cutoff_date}
+
+    _save_visitor_data_to_disk(visitor_storage)
 
 @st.cache_resource
 def get_http_session():
@@ -758,6 +801,14 @@ with st.sidebar.expander("🔒 관리자 모드 (방문자 확인)", expanded=Fa
         if visitor_storage["logs"]:
             today_logs = [log for log in visitor_storage["logs"] if log["date"] == today_key]
             st.caption(f"최근 접속 기록(한국 시간): {today_logs[-1]['time'] if today_logs else '-'}")
+
+        recent_daily = dict(sorted(visitor_storage["daily"].items())[-14:])
+        if recent_daily:
+            st.caption("최근 14일 일별 방문자")
+            st.bar_chart(pd.Series(recent_daily, name="방문자"))
+
+        st.caption("※ visitor_stats.json 파일에 저장됩니다. 로컬 실행/일반 재실행 시에는 유지되지만, "
+                   "Streamlit Cloud 등에서 앱을 새로 배포(reboot)하면 초기화될 수 있습니다.")
     elif admin_password:
         st.error("비밀번호가 일치하지 않습니다.")
 
@@ -775,11 +826,11 @@ selected_months_count = st.sidebar.slider(
     value=6,
     step=1,
     format="최근 %d개월",
-    help="조회하고자 하는 과거 개월 수를 자유롭게 선택할 수 있습니다 (최대 24개월)."
+    help="조회하고자 하는 과거 개월 수를 자유롭게 선택할 수 있습니다 (최대 24개월). "
+         "단, 시·도/시·군 전체처럼 넓은 범위를 선택하면 API 트래픽 보호를 위해 자동으로 단축될 수 있습니다."
 )
-
-# 선택된 개월 수 기반 연월 튜플 생성
-target_months = [(now_kst - relativedelta(months=i)).strftime('%Y%m') for i in range(selected_months_count - 1, -1, -1)]
+# target_months는 아래 6-1 섹션에서 지역 범위(target_codes_to_fetch)가 확정된 뒤,
+# 광역 조회 가드레일을 적용해서 생성한다.
 
 # [2] 이상치 정제 옵션
 filter_bulk_option = st.sidebar.checkbox(
@@ -992,6 +1043,28 @@ else:
         code = sido_data[selected_gu_direct]
         target_codes_to_fetch.append((code, selected_sido, selected_sido, selected_gu_direct))
 
+# ── 6-1. 광역 조회 가드레일 (API 트래픽 보호) ──────────────────
+# '경기도 전체'처럼 시·군·구 코드가 많은 범위 + 긴 조회 기간이 겹치면
+# 국토부 API 호출 횟수가 (지역 수 × 개월 수 × 2) 로 폭증해 Streamlit Cloud
+# 메모리 초과(OOM)나 하루 API 호출 한도 소진으로 이어질 수 있어 자동으로 제한한다.
+WIDE_REGION_CODE_THRESHOLD = 10   # 이 개수를 넘는 시·군·구를 동시에 조회하면 광역 조회로 간주
+WIDE_REGION_MONTH_CAP = 6         # 광역 조회 시 최대 허용 개월 수
+
+is_wide_region = len(target_codes_to_fetch) > WIDE_REGION_CODE_THRESHOLD
+if is_wide_region and selected_months_count > WIDE_REGION_MONTH_CAP:
+    effective_months_count = WIDE_REGION_MONTH_CAP
+    st.warning(
+        f"⚠️ 현재 선택 범위는 시·군·구 {len(target_codes_to_fetch)}곳을 동시에 조회합니다. "
+        f"국토부 API 트래픽 보호를 위해 조회 기간이 사이드바 선택값(최근 {selected_months_count}개월) 대신 "
+        f"**최근 {WIDE_REGION_MONTH_CAP}개월**로 자동 제한되었습니다. 더 긴 기간이 필요하면 시·군·구 단위로 범위를 좁혀서 조회해주세요."
+    )
+else:
+    effective_months_count = selected_months_count
+
+# 실제 조회 기간을 기준으로 이후 로직(라벨/추세 계산 등)이 일관되게 동작하도록 반영
+selected_months_count = effective_months_count
+target_months = [(now_kst - relativedelta(months=i)).strftime('%Y%m') for i in range(selected_months_count - 1, -1, -1)]
+
 scope_name = selected_city if selected_sido == "경기도" else selected_gu_direct
 
 with st.spinner(f"'{selected_sido} {scope_name} ({selected_gu if selected_sido == '경기도' else ''})' 매매 및 전세 실거래 데이터를 조회 중입니다..."):
@@ -1020,6 +1093,10 @@ if filter_bulk_option:
 pyeong_info = df['area'].apply(get_pyeong_group_key)
 df['supply_pyeong'] = [p[0] for p in pyeong_info]
 df['pyeong_label'] = [p[1] for p in pyeong_info]
+df['pyeong_exact'] = [p[2] for p in pyeong_info]
+
+# 평단가(만원/평) 산출 - 전용면적 0 등 이상치는 0으로 처리
+df['price_per_pyeong'] = np.where(df['pyeong_exact'] > 0, df['price'] / df['pyeong_exact'], 0)
 
 # 전세 데이터 평형 산출
 if not rent_df.empty:
@@ -1071,6 +1148,10 @@ if clean_price_deals.empty:
     clean_price_deals = view_df
 
 avg_clean_price = int(clean_price_deals['price'].mean()) if len(clean_price_deals) > 0 else 0
+
+clean_ppyeong_deals = clean_price_deals[clean_price_deals['price_per_pyeong'] > 0]
+avg_price_per_pyeong = int(clean_ppyeong_deals['price_per_pyeong'].mean()) if len(clean_ppyeong_deals) > 0 else 0
+
 apt_count = view_df['apt'].nunique() if len(view_df) > 0 else 0
 
 if len(view_df) > 0:
@@ -1118,7 +1199,7 @@ else:
         <div class="kpi-card">
             <div class="kpi-label">💰 평균 실거래가</div>
             <div class="kpi-value accent">{format_price(avg_clean_price)}</div>
-            <div class="kpi-sub muted">로열층 중개거래 기준</div>
+            <div class="kpi-sub muted">로열층 기준 · 평당 {avg_price_per_pyeong:,}만원</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">🏆 최고 실거래가</div>
@@ -1156,25 +1237,61 @@ if selected_dong != '전체 보기':
     display_title += f" {selected_dong}"
 
 with c1:
-    st.markdown(f'<div class="section-title">📈 월별 거래량 추이</div>', unsafe_allow_html=True)
-    monthly_series = affordable_df['month'].value_counts().sort_index()
-    fig = go.Figure(go.Bar(
-        x=monthly_series.index,
-        y=monthly_series.values,
-        marker_color="#2a78d6",
-        hovertemplate="%{x}<br><b>%{y}건</b><extra></extra>",
-    ))
-    fig.update_layout(
-        plot_bgcolor="#fcfcfb",
-        paper_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=6, r=6, t=10, b=10),
-        height=290,
-        font=dict(family="Pretendard, sans-serif", color="#52514e", size=11),
-        xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
-        yaxis=dict(gridcolor="#e1e0d9", zeroline=False),
-        hoverlabel=dict(bgcolor="#184f95", font_color="#ffffff", font_family="Pretendard, sans-serif"),
-    )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.markdown(f'<div class="section-title">📈 시세 및 거래량 추이</div>', unsafe_allow_html=True)
+    tab_price, tab_volume = st.tabs(["💰 평당가 추이", "📊 거래량 추이"])
+
+    with tab_price:
+        clean_trend_df = affordable_df[(affordable_df['floor'] > 3) & (affordable_df['deal_type'] != '직거래')]
+        if clean_trend_df.empty:
+            clean_trend_df = affordable_df
+        clean_trend_df = clean_trend_df[clean_trend_df['price_per_pyeong'] > 0]
+        monthly_ppyeong = clean_trend_df.groupby('month')['price_per_pyeong'].mean().sort_index()
+
+        if monthly_ppyeong.empty:
+            st.info("표시할 평당가 추이 데이터가 없습니다.")
+        else:
+            fig_price = go.Figure(go.Scatter(
+                x=monthly_ppyeong.index,
+                y=monthly_ppyeong.values,
+                mode="lines+markers",
+                line=dict(color="#eb6834", width=2.5),
+                marker=dict(size=6, color="#eb6834"),
+                fill="tozeroy",
+                fillcolor="rgba(235,104,52,0.08)",
+                hovertemplate="%{x}<br><b>평당 %{y:,.0f}만원</b><extra></extra>",
+            ))
+            fig_price.update_layout(
+                plot_bgcolor="#fcfcfb",
+                paper_bgcolor="rgba(0,0,0,0)",
+                margin=dict(l=6, r=6, t=10, b=10),
+                height=290,
+                font=dict(family="Pretendard, sans-serif", color="#52514e", size=11),
+                xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
+                yaxis=dict(gridcolor="#e1e0d9", zeroline=False, ticksuffix="만"),
+                hoverlabel=dict(bgcolor="#184f95", font_color="#ffffff", font_family="Pretendard, sans-serif"),
+            )
+            st.plotly_chart(fig_price, use_container_width=True, config={"displayModeBar": False})
+            st.caption("로열층(4층 이상)·중개거래 기준 월평균 평당가(만원/평)입니다.")
+
+    with tab_volume:
+        monthly_series = affordable_df['month'].value_counts().sort_index()
+        fig = go.Figure(go.Bar(
+            x=monthly_series.index,
+            y=monthly_series.values,
+            marker_color="#2a78d6",
+            hovertemplate="%{x}<br><b>%{y}건</b><extra></extra>",
+        ))
+        fig.update_layout(
+            plot_bgcolor="#fcfcfb",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=6, r=6, t=10, b=10),
+            height=290,
+            font=dict(family="Pretendard, sans-serif", color="#52514e", size=11),
+            xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
+            yaxis=dict(gridcolor="#e1e0d9", zeroline=False),
+            hoverlabel=dict(bgcolor="#184f95", font_color="#ffffff", font_family="Pretendard, sans-serif"),
+        )
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 with c2:
     st.markdown(
@@ -1313,6 +1430,10 @@ else:
         else:
             trend_rate = 0.0
 
+        # 4-1. 평단가(만원/평) - 최근 실거래가 기준
+        mean_pyeong_exact = clean_group['pyeong_exact'].mean() if 'pyeong_exact' in clean_group.columns else 0
+        price_per_pyeong_val = (recent_mean / mean_pyeong_exact) if mean_pyeong_exact and mean_pyeong_exact > 0 else None
+
         # 5. 전세가, 전세가율, 전세 변동률 매칭
         rent_info = rent_dict.get((c_val, g_val, d_val, a_val, p_val), None)
         if rent_info:
@@ -1330,6 +1451,7 @@ else:
             '초기기준시세': base_mean,
             '변동률': trend_rate,
             '조회기간최고가': max_price_val,
+            '평단가': price_per_pyeong_val,
             '최근전세가': rent_val,
             '전세가율': jeonse_rate,
             '전세변동률': rent_trend,
@@ -1351,6 +1473,7 @@ else:
 
     apt_rank['최근실거래가_fmt'] = apt_rank['최근실거래가'].astype(int).apply(format_price)
     apt_rank['조회기간최고가_fmt'] = apt_rank['조회기간최고가'].astype(int).apply(format_price)
+    apt_rank['평단가_fmt'] = apt_rank['평단가'].apply(lambda x: f"{int(x):,}만" if pd.notna(x) and x > 0 else "-")
     apt_rank['최근전세가_fmt'] = apt_rank['최근전세가'].apply(lambda x: format_price(x) if pd.notna(x) else "-")
     apt_rank['전세가율_fmt'] = apt_rank['전세가율'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "-")
     apt_rank['전세변동_fmt'] = apt_rank['전세변동률'].apply(format_trend_text)
@@ -1382,7 +1505,7 @@ else:
                 f'<div class="rank-loc">{loc_txt}</div>'
                 f'<div>{trend_badge_html}</div>'
                 f'<div class="rank-price">{row["최근실거래가_fmt"]}원</div>'
-                f'<div class="rank-meta">총 {int(row["거래건수"])}건 거래 · 최고가 {row["조회기간최고가_fmt"]}원</div>'
+                f'<div class="rank-meta">평당 {row["평단가_fmt"]}원 · 총 {int(row["거래건수"])}건 거래 · 최고가 {row["조회기간최고가_fmt"]}원</div>'
                 f'</div>'
                 f'{jeonse_html}'
                 f'</div>'
@@ -1399,12 +1522,12 @@ else:
         rest['거래건수'] = rest['거래건수'].astype(int)
 
         rest_display = rest[[
-            'city', 'gu', 'dong', 'apt', '전용면적_평형', '전세가율_fmt', '거래건수', 
-            '최근실거래가_fmt', '매매기간변동', '최근전세가_fmt', '전세변동_fmt'
+            'city', 'gu', 'dong', 'apt', '전용면적_평형', '전세가율_fmt', '거래건수',
+            '최근실거래가_fmt', '평단가_fmt', '매매기간변동', '최근전세가_fmt', '전세변동_fmt'
         ]].copy()
         rest_display.columns = [
-            '시·군', '구', '법정동', '단지명', '면적(공급평형)', '전세가율', '거래건수', 
-            '최근 매매가', f'매매 {trend_label}', '최근 전세가', f'전세 {trend_label}'
+            '시·군', '구', '법정동', '단지명', '면적(공급평형)', '전세가율', '거래건수',
+            '최근 매매가', '평단가(만원)', f'매매 {trend_label}', '최근 전세가', f'전세 {trend_label}'
         ]
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
