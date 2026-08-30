@@ -275,8 +275,8 @@ def calculate_dsr_max_loan(annual_income: int, loan_interest: float, term_years:
 
 
 def get_trend_badge(trend_rate: float) -> str:
-    """6개월 전 대비 시세 변동률(모멘텀) 상태 배지 생성"""
-    if pd.isna(trend_rate):
+    """기간 대비 시세 변동률(모멘텀) 상태 배지 생성"""
+    if pd.isna(trend_rate) or trend_rate is None:
         return '<span class="badge-rate flat">➖ 변동 없음</span>'
     if trend_rate >= 5.0:
         return f'<span class="badge-rate surge">🔥 급상승 (+{trend_rate:.1f}%)</span>'
@@ -367,17 +367,6 @@ HTTP_SESSION = get_http_session()
 
 # ─────────────────────────────────────────────────────────
 # 지역코드(법정동코드) 안내
-#   - 2026-07-01부로 광주광역시 + 전라남도가 "전남광주통합특별시"(신규 시도코드 12)로
-#     행정통합되었습니다. 기존 광주 5개구(동구/서구/남구/북구/광산구)의 법정동코드는
-#     29xxx → 12xxx 로 전면 재부여되었습니다. (기존 29xxx 코드는 폐지되어 더 이상
-#     실거래가 API에서 유효하지 않습니다 — "광주 데이터가 안 불러와짐" 문제의 원인)
-#   - 같은 시기(2026-07) 인천광역시도 자치구가 개편되어 기존 중구/동구가 폐지되고
-#     제물포구/영종구/서해구/검단구가 신설되었습니다.
-#   - 대전광역시+충청남도 통합("대전충남통합특별시")은 2026년 2월 국회 절차에서
-#     보류되어 아직 시행되지 않았습니다. 즉 대전 5개구(30110/30140/30170/30200/30230)
-#     코드는 이번 개편과 무관하며 기존 코드가 그대로 유효합니다.
-#   - 위 내용은 행정표준코드관리시스템(code.go.kr)의 법정동코드목록조회 화면을 통해
-#     2026-08-29 기준으로 직접 재검증한 값입니다.
 # ─────────────────────────────────────────────────────────
 REGION_STRUCTURE = {
     "경기도": {
@@ -426,7 +415,6 @@ REGION_STRUCTURE = {
         "강북구": "11305", "중랑구": "11260", "은평구": "11380", "종로구": "11110", "중구": "11140"
     },
     "인천광역시": {
-        # 2026-07 자치구 개편: 중구/동구 폐지 → 제물포구/영종구/서해구/검단구 신설
         "연수구": "28185", "남동구": "28200", "서구": "28260", "부평구": "28237",
         "미추홀구": "28177", "계양구": "28245", "강화군": "28710", "옹진군": "28720",
         "제물포구": "28125", "영종구": "28155", "서해구": "28275", "검단구": "28290"
@@ -441,7 +429,6 @@ REGION_STRUCTURE = {
         "서구": "27170", "남구": "27200", "북구": "27230", "달성군": "27710"
     },
     "대전광역시": {
-        # 대전+충남 통합("대전충남통합특별시")은 2026-02 국회 절차 보류로 미시행 → 기존 코드 유효
         "유성구": "30200", "서구": "30170", "중구": "30140", "동구": "30110", "대덕구": "30230"
     },
     "울산광역시": {
@@ -451,8 +438,6 @@ REGION_STRUCTURE = {
         "세종특별자치시": "36110"
     },
     "전남광주통합특별시": {
-        # 2026-07-01 광주광역시+전라남도 행정통합으로 신설. 시도코드 12.
-        # 행정코드는 전남 5개시 → 광주 5개구 → 전남 17개군 순서로 재부여됨
         "목포시": "12110", "여수시": "12130", "순천시": "12150", "나주시": "12170", "광양시": "12190",
         "동구": "12210", "서구": "12240", "남구": "12270", "북구": "12300", "광산구": "12330",
         "담양군": "12710", "곡성군": "12720", "구례군": "12730", "고흥군": "12740", "보성군": "12750",
@@ -655,7 +640,6 @@ def fetch_rent_task(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
         for item in items:
             r = {child.tag: (child.text.strip() if child.text else '') for child in item}
             monthly_rent = str(r.get('monthlyRent', '0')).replace(',', '').strip()
-            # 순수 전세만 수집
             if monthly_rent == '0':
                 raw_dong = r.get('umdNm', '').strip() or r.get('aptDong', '').strip() or '기타'
                 floor_str = str(r.get('floor', '0')).strip()
@@ -759,19 +743,19 @@ if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기", 
     st.cache_data.clear()
     st.rerun()
 
-# [1] 조회 기간 선택
-period_option = st.sidebar.selectbox(
+# [1] 조회 기간 선택 (슬라이더 스크롤 방식으로 개월 수 조절)
+selected_months_count = st.sidebar.slider(
     "📅 조회 기간 선택",
-    ["최근 6개월 (실시간)", "최근 12개월 (1년)", "2024년 전체"],
-    index=0
+    min_value=1,
+    max_value=24,
+    value=6,
+    step=1,
+    format="최근 %d개월",
+    help="조회하고자 하는 과거 개월 수를 자유롭게 선택할 수 있습니다 (최대 24개월)."
 )
 
-if period_option == "최근 6개월 (실시간)":
-    target_months = [(now_kst - relativedelta(months=i)).strftime('%Y%m') for i in range(5, -1, -1)]
-elif period_option == "최근 12개월 (1년)":
-    target_months = [(now_kst - relativedelta(months=i)).strftime('%Y%m') for i in range(11, -1, -1)]
-else:
-    target_months = [f"2024{m:02d}" for m in range(1, 13)]
+# 선택된 개월 수 기반 연월 튜플 생성
+target_months = [(now_kst - relativedelta(months=i)).strftime('%Y%m') for i in range(selected_months_count - 1, -1, -1)]
 
 # [2] 이상치 정제 옵션
 filter_bulk_option = st.sidebar.checkbox(
@@ -1105,7 +1089,7 @@ else:
         <div class="kpi-card">
             <div class="kpi-label">📊 전체 거래건수</div>
             <div class="kpi-value">{len(view_df):,}건</div>
-            <div class="kpi-sub muted">해당 기간 전체 실거래 100%</div>
+            <div class="kpi-sub muted">최근 {selected_months_count}개월 전체 실거래 100%</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">💰 평균 실거래가</div>
@@ -1180,7 +1164,9 @@ with c2:
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-# ── 9. 추천 단지 TOP 15 (전세가율 컬럼을 거래건수 앞으로 배치) ────────
+# ── 9. 추천 단지 TOP 15 (슬라이더 개월수 맞춤 변동 추세 및 전세가율) ───
+trend_label = f"{selected_months_count}개월 변동" if selected_months_count > 1 else "변동률"
+
 if calc_enabled:
     st.markdown(
         f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
@@ -1193,12 +1179,18 @@ if affordable_df.empty:
     st.info("현재 설정된 조건(면적/예산 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
 else:
     all_period_months = sorted(list(affordable_df['month'].unique()))
-    early_fixed_months = all_period_months[:2] if len(all_period_months) >= 2 else all_period_months
-    late_fixed_months = all_period_months[-2:] if len(all_period_months) >= 2 else all_period_months
-    half_split_idx = max(1, len(all_period_months) // 2)
-    first_half_months = all_period_months[:half_split_idx]
+    
+    if len(all_period_months) >= 2:
+        early_fixed_months = all_period_months[:2]
+        late_fixed_months = all_period_months[-2:]
+        half_split_idx = max(1, len(all_period_months) // 2)
+        first_half_months = all_period_months[:half_split_idx]
+    else:
+        early_fixed_months = all_period_months
+        late_fixed_months = all_period_months
+        first_half_months = all_period_months
 
-    # 전세 데이터 사전 집계 (단지+평형별 최근 전세가 및 6개월 전세 변동률)
+    # 전세 데이터 사전 집계 (단지+평형별 최근 전세가 및 변동률)
     rent_dict = {}
     if not view_rent_df.empty:
         clean_rent_df = view_rent_df[view_rent_df['floor'] > 3]
@@ -1214,7 +1206,7 @@ else:
                 r_latest_month = r_group['month'].max()
                 r_price_recent = r_group[r_group['month'] == r_latest_month]['deposit'].mean()
 
-            # 2) 5~6개월 전 초기 전세가
+            # 2) 초기 전세가
             r_base = r_group[r_group['month'].isin(early_fixed_months)]
             if not r_base.empty:
                 r_price_base = r_base['deposit'].mean()
@@ -1226,8 +1218,8 @@ else:
                     r_earliest_month = r_group['month'].min()
                     r_price_base = r_group[r_group['month'] == r_earliest_month]['deposit'].mean()
 
-            # 3) 전세 6개월 변동률
-            if r_price_base > 0:
+            # 3) 전세 변동률
+            if selected_months_count > 1 and r_price_base > 0:
                 rent_trend = ((r_price_recent - r_price_base) / r_price_base) * 100
             else:
                 rent_trend = 0.0
@@ -1264,7 +1256,7 @@ else:
             latest_month_of_apt = clean_group['month'].max()
             recent_mean = clean_group[clean_group['month'] == latest_month_of_apt]['price'].mean()
 
-        # 3. 5~6개월 전 초기 기준 매매 시세 산출
+        # 3. 초기 기준 매매 시세 산출
         base_deals = clean_group[clean_group['month'].isin(early_fixed_months)]
         if not base_deals.empty:
             base_mean = base_deals['price'].mean()
@@ -1276,13 +1268,13 @@ else:
                 earliest_month_of_apt = clean_group['month'].min()
                 base_mean = clean_group[clean_group['month'] == earliest_month_of_apt]['price'].mean()
 
-        # 4. 6개월 전 대비 매매 변동률(모멘텀)
-        if base_mean > 0:
+        # 4. 기간 대비 매매 변동률(모멘텀)
+        if selected_months_count > 1 and base_mean > 0:
             trend_rate = ((recent_mean - base_mean) / base_mean) * 100
         else:
             trend_rate = 0.0
 
-        # 5. 전세가, 전세가율, 전세 6개월 변동률 매칭
+        # 5. 전세가, 전세가율, 전세 변동률 매칭
         rent_info = rent_dict.get((c_val, g_val, d_val, a_val, p_val), None)
         if rent_info:
             rent_val = rent_info['recent_rent']
@@ -1336,9 +1328,9 @@ else:
             loc_txt = html.escape(f"{row['city']} {row['gu']} {row['dong']} · {row['전용면적_평형']}")
             trend_badge_html = row['상태배지']
             
-            # 전세가율 및 전세 6개월 변동 박스 (HTML 파싱 에러 방지 단일 행 결합)
+            # 전세 및 전세 기간 변동 안내
             if row['전세가율_fmt'] != "-":
-                jeonse_trend_str = f"전세 6개월 {row['전세변동_fmt']}" if row['전세변동_fmt'] != "-" else ""
+                jeonse_trend_str = f"전세 {trend_label} {row['전세변동_fmt']}" if row['전세변동_fmt'] != "-" else ""
                 jeonse_html = f'<div class="rank-jeonse-box">전세 {row["최근전세가_fmt"]} (<b>전세가율 {row["전세가율_fmt"]}</b>)<br><span style="font-size:0.71rem; color:var(--ink-secondary);">{jeonse_trend_str}</span></div>'
             else:
                 jeonse_html = '<div class="rank-jeonse-box" style="color:var(--ink-muted); border-color:var(--border-hairline);">최근 전세 거래 없음</div>'
@@ -1361,19 +1353,19 @@ else:
                 st.markdown(card_html, unsafe_allow_html=True)
         st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
-    # 4위 이하 단지 표 (전세가율을 거래건수 바로 앞으로 배치)
+    # 4위 이하 단지 표 (전세가율 컬럼을 거래건수 바로 앞으로 배치)
     rest = apt_rank.iloc[3:].copy()
     if not rest.empty:
-        rest['6개월매매변동'] = rest['변동률'].apply(format_trend_text)
+        rest['매매기간변동'] = rest['변동률'].apply(format_trend_text)
         rest['거래건수'] = rest['거래건수'].astype(int)
 
         rest_display = rest[[
             'city', 'gu', 'dong', 'apt', '전용면적_평형', '전세가율_fmt', '거래건수', 
-            '최근실거래가_fmt', '6개월매매변동', '최근전세가_fmt', '전세변동_fmt'
+            '최근실거래가_fmt', '매매기간변동', '최근전세가_fmt', '전세변동_fmt'
         ]].copy()
         rest_display.columns = [
             '시·군', '구', '법정동', '단지명', '면적(공급평형)', '전세가율', '거래건수', 
-            '최근 매매가', '매매 6개월 변동', '최근 전세가', '전세 6개월 변동'
+            '최근 매매가', f'매매 {trend_label}', '최근 전세가', f'전세 {trend_label}'
         ]
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
