@@ -231,8 +231,7 @@ def format_price(x: int) -> str:
 
 
 def get_pyeong_group_key(m2: float) -> tuple:
-    """전용면적(㎡)을 분양/공급 체감 평형 그룹으로 분류.
-    (반올림 공급평형, 표시용 라벨, 평단가 계산용 정밀 공급평형) 튜플 반환."""
+    """전용면적(㎡)을 분양/공급 체감 평형 그룹으로 분류."""
     raw_supply_p = (m2 / 3.30578) / 0.745
     supply_p = int(round(raw_supply_p))
     label = f"{m2:.1f}㎡ ({supply_p}평형)"
@@ -978,7 +977,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ── [신규] 상단 분석 모드 선택기 ────────────────────────────
+# ── 상단 분석 모드 선택기 ─────────────────────────────────
 analysis_mode = st.radio(
     "분석 모드 선택",
     ["📊 실시간 실거래 인기 단지", "🏆 작년 전고점 대비 상승/하락 분석"],
@@ -1079,7 +1078,6 @@ else:
 
 # 모드별 수집 대상 연월 결정
 if analysis_mode == "🏆 작년 전고점 대비 상승/하락 분석":
-    # 2025년 1년치(12개월) + 2026년 현재까지의 연월 생성
     months_2025 = [f"2025{m:02d}" for m in range(1, 13)]
     months_2026 = [f"2026{m:02d}" for m in range(1, now_kst.month + 1)]
     target_months = tuple(months_2025 + months_2026)
@@ -1166,85 +1164,7 @@ else:
     affordable_df = view_df
     dong_rank_source = df
 
-# ── 7. 요약 통계 KPI 카드 ─────────────────────────────────
-match_pct = (len(affordable_df) / len(view_df) * 100) if len(view_df) > 0 else 0
-
-clean_price_deals = view_df[(view_df['floor'] > 3) & (view_df['deal_type'] != '직거래')]
-if clean_price_deals.empty:
-    clean_price_deals = view_df
-
-avg_clean_price = int(clean_price_deals['price'].mean()) if len(clean_price_deals) > 0 else 0
-
-clean_ppyeong_deals = clean_price_deals[clean_price_deals['price_per_pyeong'] > 0]
-avg_price_per_pyeong = int(clean_ppyeong_deals['price_per_pyeong'].mean()) if len(clean_ppyeong_deals) > 0 else 0
-
-apt_count = view_df['apt'].nunique() if len(view_df) > 0 else 0
-
-if len(view_df) > 0:
-    max_idx = view_df['price'].idxmax()
-    max_row = view_df.loc[max_idx]
-    max_price = int(max_row['price'])
-    max_apt_desc = f"{max_row['apt']} ({max_row['dong']} · {int(max_row['supply_pyeong'])}평형)"
-else:
-    max_price = 0
-    max_apt_desc = "조회 기간 내 최고가"
-
-if calc_enabled:
-    kpi_html = f"""
-    <div class="kpi-grid-container">
-        <div class="kpi-card">
-            <div class="kpi-label">💵 최대 매수가</div>
-            <div class="kpi-value accent">{format_price(max_affordable_price)}</div>
-            <div class="kpi-sub muted">부대비용 {final_costs['총부대비용']:,}만 차감 반영</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">💳 필요 대출금</div>
-            <div class="kpi-value">{format_price(actual_loan_amount)}</div>
-            <div class="kpi-sub muted">LTV {ltv_rate}% · DSR 40% 한도 적용</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">🎯 매수 가능 거래</div>
-            <div class="kpi-value">{len(affordable_df):,}건</div>
-            <div class="kpi-sub">전체 {len(view_df):,}건 중 {match_pct:.1f}%</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">🏦 월 예상 원리금</div>
-            <div class="kpi-value primary">{monthly_payment // 10000:,}만원</div>
-            <div class="kpi-sub muted">금리 {loan_interest:.1f}% · {loan_term_years}년 만기</div>
-        </div>
-    </div>
-    """
-else:
-    kpi_html = f"""
-    <div class="kpi-grid-container">
-        <div class="kpi-card">
-            <div class="kpi-label">📊 전체 거래건수</div>
-            <div class="kpi-value">{len(view_df):,}건</div>
-            <div class="kpi-sub muted">조회 데이터 전체 실거래 100%</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">💰 평균 실거래가</div>
-            <div class="kpi-value accent">{format_price(avg_clean_price)}</div>
-            <div class="kpi-sub muted">로열층 기준 · 평당 {avg_price_per_pyeong:,}만원</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">🏆 최고 실거래가</div>
-            <div class="kpi-value">{format_price(max_price)}</div>
-            <div class="kpi-sub muted" title="{html.escape(max_apt_desc)}">{html.escape(max_apt_desc)}</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">🏘️ 거래 단지 수</div>
-            <div class="kpi-value primary">{apt_count:,}개</div>
-            <div class="kpi-sub muted">사이드바 계산기 지원</div>
-        </div>
-    </div>
-    """
-
-st.markdown(kpi_html, unsafe_allow_html=True)
-
-# ── 8. 차트 및 동별 순위표 (차트 40% : 순위표 60%) ─────────────
-c1, c2 = st.columns([2, 3])
-
+# ── 지역 타이틀 정제 ─────────────────────────────────────
 if selected_sido == "경기도":
     if selected_city == "경기도 전체":
         display_title = "경기도 전체"
@@ -1261,98 +1181,12 @@ else:
 if selected_dong != '전체 보기':
     display_title += f" {selected_dong}"
 
-with c1:
-    st.markdown(f'<div class="section-title">📈 시세 및 거래량 추이</div>', unsafe_allow_html=True)
-    tab_price, tab_volume = st.tabs(["💰 평당가 추이", "📊 거래량 추이"])
-
-    with tab_price:
-        clean_trend_df = affordable_df[(affordable_df['floor'] > 3) & (affordable_df['deal_type'] != '직거래')]
-        if clean_trend_df.empty:
-            clean_trend_df = affordable_df
-        clean_trend_df = clean_trend_df[clean_trend_df['price_per_pyeong'] > 0]
-        monthly_ppyeong = clean_trend_df.groupby('month')['price_per_pyeong'].mean().sort_index()
-
-        if monthly_ppyeong.empty:
-            st.info("표시할 평당가 추이 데이터가 없습니다.")
-        else:
-            fig_price = go.Figure(go.Scatter(
-                x=monthly_ppyeong.index,
-                y=monthly_ppyeong.values,
-                mode="lines+markers",
-                line=dict(color="#eb6834", width=2.5),
-                marker=dict(size=6, color="#eb6834"),
-                fill="tozeroy",
-                fillcolor="rgba(235,104,52,0.08)",
-                hovertemplate="%{x}<br><b>평당 %{y:,.0f}만원</b><extra></extra>",
-            ))
-            fig_price.update_layout(
-                plot_bgcolor="#fcfcfb",
-                paper_bgcolor="rgba(0,0,0,0)",
-                margin=dict(l=6, r=6, t=10, b=10),
-                height=290,
-                font=dict(family="Pretendard, sans-serif", color="#52514e", size=11),
-                xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
-                yaxis=dict(gridcolor="#e1e0d9", zeroline=False, ticksuffix="만"),
-                hoverlabel=dict(bgcolor="#184f95", font_color="#ffffff", font_family="Pretendard, sans-serif"),
-            )
-            st.plotly_chart(fig_price, use_container_width=True, config={"displayModeBar": False})
-            st.caption("로열층(4층 이상)·중개거래 기준 월평균 평당가(만원/평)입니다.")
-
-    with tab_volume:
-        monthly_series = affordable_df['month'].value_counts().sort_index()
-        fig = go.Figure(go.Bar(
-            x=monthly_series.index,
-            y=monthly_series.values,
-            marker_color="#2a78d6",
-            hovertemplate="%{x}<br><b>%{y}건</b><extra></extra>",
-        ))
-        fig.update_layout(
-            plot_bgcolor="#fcfcfb",
-            paper_bgcolor="rgba(0,0,0,0)",
-            margin=dict(l=6, r=6, t=10, b=10),
-            height=290,
-            font=dict(family="Pretendard, sans-serif", color="#52514e", size=11),
-            xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
-            yaxis=dict(gridcolor="#e1e0d9", zeroline=False),
-            hoverlabel=dict(bgcolor="#184f95", font_color="#ffffff", font_family="Pretendard, sans-serif"),
-        )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-with c2:
-    st.markdown(
-        f'<div class="section-title">🥇 {selected_gu if selected_sido == "경기도" else scope_name} 동별 거래량 순위</div>',
-        unsafe_allow_html=True
-    )
-    rank_df = dong_rank_source.groupby(['city', 'gu', 'dong']).size().reset_index(name='거래건수')
-    rank_df = rank_df.sort_values(by='거래건수', ascending=False)
-    rank_df.columns = ['시·군', '구', '동·읍·면명', '거래건수']
-    rank_df.index = range(1, len(rank_df) + 1)
-    max_count = int(rank_df['거래건수'].max()) if len(rank_df) > 0 else 1
-    st.dataframe(
-        rank_df,
-        use_container_width=True,
-        height=270,
-        column_config={
-            "거래건수": st.column_config.ProgressColumn(
-                "거래건수", format="%d건", min_value=0, max_value=max_count
-            )
-        }
-    )
-
-st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
-
-# ── 9. 메인 분석 모드 분기 처리 ─────────────────────────────
 GROUP_KEYS = ['city', 'gu', 'dong', 'apt', 'supply_pyeong']
 
-# ─────────────────────────────────────────────────────────
-# [모드 1] 🏆 작년 전고점 대비 상승/하락 분석
-# ─────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════
+# [모드 1] 🏆 작년 전고점 대비 상승/하락 분석 전용 화면
+# ═════════════════════════════════════════════════════════
 if analysis_mode == "🏆 작년 전고점 대비 상승/하락 분석":
-    st.markdown(
-        f'<div class="section-title">🏆 {display_title} 작년(2025년) 최고가 대비 올해(2026년) 상승·하락 분석</div>',
-        unsafe_allow_html=True
-    )
-
     df_2025 = affordable_df[affordable_df['month'].str.startswith('2025')]
     df_2026 = affordable_df[affordable_df['month'].str.startswith('2026')]
 
@@ -1371,7 +1205,7 @@ if analysis_mode == "🏆 작년 전고점 대비 상승/하락 분석":
         작년거래수=('price', 'count')
     ).reset_index()
 
-    # 2026년 최신 거래 집계 (최근 월 우선 가중치)
+    # 2026년 최신 거래 집계
     def calc_2026_metrics(g):
         latest_m = g['month'].max()
         recent_deals = g[g['month'] == latest_m]
@@ -1390,7 +1224,7 @@ if analysis_mode == "🏆 작년 전고점 대비 상승/하락 분석":
     except TypeError:
         stat_2026 = clean_2026.groupby(GROUP_KEYS).apply(calc_2026_metrics).reset_index()
 
-    # 2026년 전세가 매칭 (최신 전세)
+    # 2026년 최신 전세가 매칭
     rent_dict_2026 = {}
     if not view_rent_df.empty:
         clean_rent_2026 = view_rent_df[view_rent_df['month'].str.startswith('2026') & (view_rent_df['floor'] > 3)]
@@ -1409,7 +1243,98 @@ if analysis_mode == "🏆 작년 전고점 대비 상승/하락 분석":
         merged_compare['변동률'] = ((merged_compare['올해현재가'] - merged_compare['작년최고가']) / merged_compare['작년최고가']) * 100
         merged_compare['상태배지'] = merged_compare['변동률'].apply(get_trend_badge)
 
-        # 전세가 및 전세가율 결합
+        # ── 전고점 분석 전용 KPI 카드 4종 ──
+        total_matched_apts = len(merged_compare)
+        breakthrough_apts = len(merged_compare[merged_compare['변동률'] > 0])
+        breakthrough_rate = (breakthrough_apts / total_matched_apts * 100) if total_matched_apts > 0 else 0
+
+        avg_recovery_rate = (merged_compare['올해현재가'].sum() / merged_compare['작년최고가'].sum() * 100) if merged_compare['작년최고가'].sum() > 0 else 100
+        avg_recovery_diff = avg_recovery_rate - 100
+
+        top_up_row = merged_compare.sort_values(by='변동률', ascending=False).iloc[0]
+        top_down_row = merged_compare.sort_values(by='변동률', ascending=True).iloc[0]
+
+        comp_kpi_html = f"""
+        <div class="kpi-grid-container">
+            <div class="kpi-card">
+                <div class="kpi-label">🚀 전고점 돌파 단지</div>
+                <div class="kpi-value accent">{breakthrough_apts:,}개</div>
+                <div class="kpi-sub">비교 {total_matched_apts:,}개 단지 중 {breakthrough_rate:.1f}%</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">⚖️ 지역 평균 회복률</div>
+                <div class="kpi-value primary">{avg_recovery_rate:.1f}%</div>
+                <div class="kpi-sub muted">작년 최고가 대비 {avg_recovery_diff:+.1f}%</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">🔥 최대 상승 단지</div>
+                <div class="kpi-value" style="color:var(--rise); font-size:1.25rem;">+{top_up_row['변동률']:.1f}%</div>
+                <div class="kpi-sub muted" title="{html.escape(top_up_row['apt'])}">{html.escape(top_up_row['apt'])} ({int(top_up_row['supply_pyeong'])}평)</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">🧊 최대 낙폭 단지</div>
+                <div class="kpi-value" style="color:var(--fall); font-size:1.25rem;">{top_down_row['변동률']:.1f}%</div>
+                <div class="kpi-sub muted" title="{html.escape(top_down_row['apt'])}">{html.escape(top_down_row['apt'])} ({int(top_down_row['supply_pyeong'])}평)</div>
+            </div>
+        </div>
+        """
+        st.markdown(comp_kpi_html, unsafe_allow_html=True)
+
+        # ── 전고점 분석 전용 시각화 차트 2종 ──
+        c1, c2 = st.columns([2, 3])
+
+        with c1:
+            st.markdown('<div class="section-title">🌡️ 시장 회복 단계 분포</div>', unsafe_allow_html=True)
+            
+            # 4단계 구간 집계
+            cnt_surge = len(merged_compare[merged_compare['변동률'] >= 3.0])
+            cnt_flat = len(merged_compare[(merged_compare['변동률'] >= 0.0) & (merged_compare['변동률'] < 3.0)])
+            cnt_adjust = len(merged_compare[(merged_compare['변동률'] >= -5.0) & (merged_compare['변동률'] < 0.0)])
+            cnt_drop = len(merged_compare[merged_compare['변동률'] < -5.0])
+
+            fig_pie = go.Figure(go.Pie(
+                labels=['🚀 전고점 돌파 (+3%↑)', '⚖️ 전고점 수준 (0~3%)', '📉 완만한 조정 (-5~0%)', '🧊 낙폭 과대 (-5%↓)'],
+                values=[cnt_surge, cnt_flat, cnt_adjust, cnt_drop],
+                hole=0.48,
+                marker=dict(colors=['#e53e3e', '#eb6834', '#a0aec0', '#2a78d6']),
+                textinfo='percent+label',
+                textposition='inside',
+                showlegend=False
+            ))
+            fig_pie.update_layout(
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                margin=dict(l=10, r=10, t=10, b=10),
+                height=280,
+                font=dict(family="Pretendard, sans-serif", color="#52514e", size=11)
+            )
+            st.plotly_chart(fig_pie, use_container_width=True, config={"displayModeBar": False})
+
+        with c2:
+            st.markdown(f'<div class="section-title">🥇 {display_title} 동별 전고점 돌파 단지 순위</div>', unsafe_allow_html=True)
+            breakthrough_df = merged_compare[merged_compare['변동률'] > 0]
+            if not breakthrough_df.empty:
+                dong_breakthrough_rank = breakthrough_df.groupby(['city', 'gu', 'dong']).size().reset_index(name='돌파단지수')
+                dong_breakthrough_rank = dong_breakthrough_rank.sort_values(by='돌파단지수', ascending=False)
+                dong_breakthrough_rank.columns = ['시·군', '구', '동·읍·면명', '돌파 단지 수']
+                dong_breakthrough_rank.index = range(1, len(dong_breakthrough_rank) + 1)
+                max_bt = int(dong_breakthrough_rank['돌파 단지 수'].max())
+                st.dataframe(
+                    dong_breakthrough_rank,
+                    use_container_width=True,
+                    height=270,
+                    column_config={
+                        "돌파 단지 수": st.column_config.ProgressColumn(
+                            "돌파 단지 수", format="%d개", min_value=0, max_value=max_bt
+                        )
+                    }
+                )
+            else:
+                st.info("작년 전고점을 돌파한 단지가 아직 없습니다.")
+
+        st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+
+        # ── 전세가 및 전세가율 결합 ──
         def get_rent_info(row):
             key = (row['city'], row['gu'], row['dong'], row['apt'], row['supply_pyeong'])
             r_val = rent_dict_2026.get(key, None)
@@ -1427,16 +1352,15 @@ if analysis_mode == "🏆 작년 전고점 대비 상승/하락 분석":
 
         merged_compare['작년최고가_fmt'] = merged_compare['작년최고가'].astype(int).apply(format_price)
         merged_compare['올해현재가_fmt'] = merged_compare['올해현재가'].astype(int).apply(format_price)
-        merged_compare['평단가_fmt'] = merged_compare['평단가'].apply(lambda x: f"{int(x):,}만" if pd.notna(x) and x > 0 else "-")
         merged_compare['전용면적_평형'] = merged_compare['전용면적_평균'].apply(lambda x: f"{x:.1f}㎡ ({int(round((x/3.30578)/0.745))}평형)")
         merged_compare['변동률_fmt'] = merged_compare['변동률'].apply(format_trend_text)
 
+        st.markdown(f'<div class="section-title">🏆 {display_title} 작년 전고점 대비 상승·하락 랭킹 TOP 15</div>', unsafe_allow_html=True)
         tab_gain, tab_loss = st.tabs(["🚀 작년 전고점 돌파·상승 TOP 15", "📉 작년 대비 낙폭과대·조정 TOP 15"])
 
         with tab_gain:
             top_gainers = merged_compare.sort_values(by='변동률', ascending=False).head(15).reset_index(drop=True)
             if not top_gainers.empty:
-                # Top 3 카드
                 medals = ['🥇', '🥈', '🥉']
                 top3_g = top_gainers.head(3)
                 top_cols = st.columns(len(top3_g))
@@ -1454,20 +1378,25 @@ if analysis_mode == "🏆 작년 전고점 대비 상승/하락 분석":
                                 <div class="rank-loc">{loc_txt}</div>
                                 <div>{badge_html}</div>
                                 <div class="rank-price">{row['올해현재가_fmt']}원</div>
-                                <div class="rank-meta">평당 {row['평단가_fmt']}원 · 작년 최고 {row['작년최고가_fmt']}원</div>
+                                <div class="rank-meta">2025년 최고가 {row['작년최고가_fmt']}원</div>
                             </div>
                             <div class="rank-jeonse-box">{jeonse_str}</div>
                         </div>
                         """, unsafe_allow_html=True)
 
-                st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
-                # 4~15등 표 (평단가를 최근 매매가 앞으로 배치)
+                # 4~15등 표 ('평단가', '26년 거래수' 삭제 & 논리적 컬럼 재배치)
                 rest_g = top_gainers.iloc[3:].copy()
                 if not rest_g.empty:
-                    rest_g['올해거래수'] = rest_g['올해거래수'].astype(int)
-                    rest_g_disp = rest_g[['city', 'gu', 'dong', 'apt', '전용면적_평형', '전세가율_fmt', '올해거래수', '평단가_fmt', '올해현재가_fmt', '작년최고가_fmt', '변동률_fmt']].copy()
-                    rest_g_disp.columns = ['시·군', '구', '법정동', '단지명', '면적(공급평형)', '전세가율', '26년 거래수', '평단가(만원)', '2026년 현재가', '2025년 최고가', '전고점 대비 변동']
+                    rest_g_disp = rest_g[[
+                        'city', 'gu', 'dong', 'apt', '전용면적_평형', '전세가율_fmt',
+                        '작년최고가_fmt', '올해현재가_fmt', '변동률_fmt'
+                    ]].copy()
+                    rest_g_disp.columns = [
+                        '시·군', '구', '법정동', '단지명', '면적(공급평형)', '전세가율',
+                        '2025년 최고가', '2026년 현재가', '전고점 대비 변동률'
+                    ]
                     rest_g_disp.index = range(4, 4 + len(rest_g_disp))
                     t_height = (len(rest_g_disp) + 1) * 36 + 15
                     st.dataframe(rest_g_disp, use_container_width=True, height=t_height)
@@ -1492,27 +1421,187 @@ if analysis_mode == "🏆 작년 전고점 대비 상승/하락 분석":
                                 <div class="rank-loc">{loc_txt}</div>
                                 <div>{badge_html}</div>
                                 <div class="rank-price">{row['올해현재가_fmt']}원</div>
-                                <div class="rank-meta">평당 {row['평단가_fmt']}원 · 작년 최고 {row['작년최고가_fmt']}원</div>
+                                <div class="rank-meta">2025년 최고가 {row['작년최고가_fmt']}원</div>
                             </div>
                             <div class="rank-jeonse-box">{jeonse_str}</div>
                         </div>
                         """, unsafe_allow_html=True)
 
-                st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
+                # 4~15등 표 ('평단가', '26년 거래수' 삭제 & 논리적 컬럼 재배치)
                 rest_l = top_losers.iloc[3:].copy()
                 if not rest_l.empty:
-                    rest_l['올해거래수'] = rest_l['올해거래수'].astype(int)
-                    rest_l_disp = rest_l[['city', 'gu', 'dong', 'apt', '전용면적_평형', '전세가율_fmt', '올해거래수', '평단가_fmt', '올해현재가_fmt', '작년최고가_fmt', '변동률_fmt']].copy()
-                    rest_l_disp.columns = ['시·군', '구', '법정동', '단지명', '면적(공급평형)', '전세가율', '26년 거래수', '평단가(만원)', '2026년 현재가', '2025년 최고가', '전고점 대비 변동']
+                    rest_l_disp = rest_l[[
+                        'city', 'gu', 'dong', 'apt', '전용면적_평형', '전세가율_fmt',
+                        '작년최고가_fmt', '올해현재가_fmt', '변동률_fmt'
+                    ]].copy()
+                    rest_l_disp.columns = [
+                        '시·군', '구', '법정동', '단지명', '면적(공급평형)', '전세가율',
+                        '2025년 최고가', '2026년 현재가', '전고점 대비 변동률'
+                    ]
                     rest_l_disp.index = range(4, 4 + len(rest_l_disp))
                     t_height = (len(rest_l_disp) + 1) * 36 + 15
                     st.dataframe(rest_l_disp, use_container_width=True, height=t_height)
 
-# ─────────────────────────────────────────────────────────
-# [모드 2] 📊 실시간 실거래 인기 단지 (기존 대시보드)
-# ─────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════
+# [모드 2] 📊 실시간 실거래 인기 단지 (기존 대시보드 화면)
+# ═════════════════════════════════════════════════════════
 else:
+    # ── 실시간 모드 전용 요약 통계 KPI 카드 ──
+    match_pct = (len(affordable_df) / len(view_df) * 100) if len(view_df) > 0 else 0
+
+    clean_price_deals = view_df[(view_df['floor'] > 3) & (view_df['deal_type'] != '직거래')]
+    if clean_price_deals.empty:
+        clean_price_deals = view_df
+
+    avg_clean_price = int(clean_price_deals['price'].mean()) if len(clean_price_deals) > 0 else 0
+    clean_ppyeong_deals = clean_price_deals[clean_price_deals['price_per_pyeong'] > 0]
+    avg_price_per_pyeong = int(clean_ppyeong_deals['price_per_pyeong'].mean()) if len(clean_ppyeong_deals) > 0 else 0
+    apt_count = view_df['apt'].nunique() if len(view_df) > 0 else 0
+
+    if len(view_df) > 0:
+        max_idx = view_df['price'].idxmax()
+        max_row = view_df.loc[max_idx]
+        max_price = int(max_row['price'])
+        max_apt_desc = f"{max_row['apt']} ({max_row['dong']} · {int(max_row['supply_pyeong'])}평형)"
+    else:
+        max_price = 0
+        max_apt_desc = "조회 기간 내 최고가"
+
+    if calc_enabled:
+        kpi_html = f"""
+        <div class="kpi-grid-container">
+            <div class="kpi-card">
+                <div class="kpi-label">💵 최대 매수가</div>
+                <div class="kpi-value accent">{format_price(max_affordable_price)}</div>
+                <div class="kpi-sub muted">부대비용 {final_costs['총부대비용']:,}만 차감 반영</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">💳 필요 대출금</div>
+                <div class="kpi-value">{format_price(actual_loan_amount)}</div>
+                <div class="kpi-sub muted">LTV {ltv_rate}% · DSR 40% 한도 적용</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">🎯 매수 가능 거래</div>
+                <div class="kpi-value">{len(affordable_df):,}건</div>
+                <div class="kpi-sub">전체 {len(view_df):,}건 중 {match_pct:.1f}%</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">🏦 월 예상 원리금</div>
+                <div class="kpi-value primary">{monthly_payment // 10000:,}만원</div>
+                <div class="kpi-sub muted">금리 {loan_interest:.1f}% · {loan_term_years}년 만기</div>
+            </div>
+        </div>
+        """
+    else:
+        kpi_html = f"""
+        <div class="kpi-grid-container">
+            <div class="kpi-card">
+                <div class="kpi-label">📊 전체 거래건수</div>
+                <div class="kpi-value">{len(view_df):,}건</div>
+                <div class="kpi-sub muted">최근 {selected_months_count}개월 전체 실거래 100%</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">💰 평균 실거래가</div>
+                <div class="kpi-value accent">{format_price(avg_clean_price)}</div>
+                <div class="kpi-sub muted">로열층 기준 · 평당 {avg_price_per_pyeong:,}만원</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">🏆 최고 실거래가</div>
+                <div class="kpi-value">{format_price(max_price)}</div>
+                <div class="kpi-sub muted" title="{html.escape(max_apt_desc)}">{html.escape(max_apt_desc)}</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">🏘️ 거래 단지 수</div>
+                <div class="kpi-value primary">{apt_count:,}개</div>
+                <div class="kpi-sub muted">사이드바 계산기 지원</div>
+            </div>
+        </div>
+        """
+    st.markdown(kpi_html, unsafe_allow_html=True)
+
+    # ── 실시간 모드 전용 차트 및 동별 순위표 ──
+    c1, c2 = st.columns([2, 3])
+
+    with c1:
+        st.markdown(f'<div class="section-title">📈 시세 및 거래량 추이</div>', unsafe_allow_html=True)
+        tab_price, tab_volume = st.tabs(["💰 평당가 추이", "📊 거래량 추이"])
+
+        with tab_price:
+            clean_trend_df = affordable_df[(affordable_df['floor'] > 3) & (affordable_df['deal_type'] != '직거래')]
+            if clean_trend_df.empty:
+                clean_trend_df = affordable_df
+            clean_trend_df = clean_trend_df[clean_trend_df['price_per_pyeong'] > 0]
+            monthly_ppyeong = clean_trend_df.groupby('month')['price_per_pyeong'].mean().sort_index()
+
+            if monthly_ppyeong.empty:
+                st.info("표시할 평당가 추이 데이터가 없습니다.")
+            else:
+                fig_price = go.Figure(go.Scatter(
+                    x=monthly_ppyeong.index,
+                    y=monthly_ppyeong.values,
+                    mode="lines+markers",
+                    line=dict(color="#eb6834", width=2.5),
+                    marker=dict(size=6, color="#eb6834"),
+                    fill="tozeroy",
+                    fillcolor="rgba(235,104,52,0.08)",
+                    hovertemplate="%{x}<br><b>평당 %{y:,.0f}만원</b><extra></extra>",
+                ))
+                fig_price.update_layout(
+                    plot_bgcolor="#fcfcfb",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    margin=dict(l=6, r=6, t=10, b=10),
+                    height=290,
+                    font=dict(family="Pretendard, sans-serif", color="#52514e", size=11),
+                    xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
+                    yaxis=dict(gridcolor="#e1e0d9", zeroline=False, ticksuffix="만"),
+                    hoverlabel=dict(bgcolor="#184f95", font_color="#ffffff", font_family="Pretendard, sans-serif"),
+                )
+                st.plotly_chart(fig_price, use_container_width=True, config={"displayModeBar": False})
+                st.caption("로열층(4층 이상)·중개거래 기준 월평균 평당가(만원/평)입니다.")
+
+        with tab_volume:
+            monthly_series = affordable_df['month'].value_counts().sort_index()
+            fig = go.Figure(go.Bar(
+                x=monthly_series.index,
+                y=monthly_series.values,
+                marker_color="#2a78d6",
+                hovertemplate="%{x}<br><b>%{y}건</b><extra></extra>",
+            ))
+            fig.update_layout(
+                plot_bgcolor="#fcfcfb",
+                paper_bgcolor="rgba(0,0,0,0)",
+                margin=dict(l=6, r=6, t=10, b=10),
+                height=290,
+                font=dict(family="Pretendard, sans-serif", color="#52514e", size=11),
+                xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
+                yaxis=dict(gridcolor="#e1e0d9", zeroline=False),
+                hoverlabel=dict(bgcolor="#184f95", font_color="#ffffff", font_family="Pretendard, sans-serif"),
+            )
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    with c2:
+        st.markdown(f'<div class="section-title">🥇 {display_title} 동별 거래량 순위</div>', unsafe_allow_html=True)
+        rank_df = dong_rank_source.groupby(['city', 'gu', 'dong']).size().reset_index(name='거래건수')
+        rank_df = rank_df.sort_values(by='거래건수', ascending=False)
+        rank_df.columns = ['시·군', '구', '동·읍·면명', '거래건수']
+        rank_df.index = range(1, len(rank_df) + 1)
+        max_count = int(rank_df['거래건수'].max()) if len(rank_df) > 0 else 1
+        st.dataframe(
+            rank_df,
+            use_container_width=True,
+            height=270,
+            column_config={
+                "거래건수": st.column_config.ProgressColumn(
+                    "거래건수", format="%d건", min_value=0, max_value=max_count
+                )
+            }
+        )
+
+    st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+
+    # ── 실시간 인기 단지 TOP 15 집계 및 출력 ──
     trend_label = f"{selected_months_count}개월 변동" if selected_months_count > 1 else "변동률"
 
     if calc_enabled:
@@ -1526,219 +1615,215 @@ else:
             unsafe_allow_html=True
         )
 
-    if affordable_df.empty:
-        st.info("현재 설정된 조건(면적/예산 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
+    all_period_months = sorted(list(affordable_df['month'].unique()))
+    if len(all_period_months) >= 2:
+        early_fixed_months = all_period_months[:2]
+        late_fixed_months = all_period_months[-2:]
+        half_split_idx = max(1, len(all_period_months) // 2)
+        first_half_months = all_period_months[:half_split_idx]
     else:
-        all_period_months = sorted(list(affordable_df['month'].unique()))
-        
-        if len(all_period_months) >= 2:
-            early_fixed_months = all_period_months[:2]
-            late_fixed_months = all_period_months[-2:]
-            half_split_idx = max(1, len(all_period_months) // 2)
-            first_half_months = all_period_months[:half_split_idx]
-        else:
-            early_fixed_months = all_period_months
-            late_fixed_months = all_period_months
-            first_half_months = all_period_months
+        early_fixed_months = all_period_months
+        late_fixed_months = all_period_months
+        first_half_months = all_period_months
 
-        FINAL_TOP_N = 15
-        CANDIDATE_SANITY_CAP = 300
+    FINAL_TOP_N = 15
+    CANDIDATE_SANITY_CAP = 300
 
-        group_sizes = affordable_df.groupby(GROUP_KEYS).size().sort_values(ascending=False)
-        candidates_limited = len(group_sizes) > FINAL_TOP_N
+    group_sizes = affordable_df.groupby(GROUP_KEYS).size().sort_values(ascending=False)
+    candidates_limited = len(group_sizes) > FINAL_TOP_N
+    if candidates_limited:
+        size_threshold = group_sizes.iloc[FINAL_TOP_N - 1]
+        top_candidate_index = group_sizes[group_sizes >= size_threshold].index[:CANDIDATE_SANITY_CAP]
+        candidate_keys_df = pd.DataFrame(top_candidate_index.tolist(), columns=GROUP_KEYS)
+        candidate_df = affordable_df.merge(candidate_keys_df, on=GROUP_KEYS, how='inner')
+    else:
+        candidate_df = affordable_df
+
+    rent_dict = {}
+    if not view_rent_df.empty:
+        clean_rent_df = view_rent_df[view_rent_df['floor'] > 3]
+        if clean_rent_df.empty:
+            clean_rent_df = view_rent_df
         if candidates_limited:
-            size_threshold = group_sizes.iloc[FINAL_TOP_N - 1]
-            top_candidate_index = group_sizes[group_sizes >= size_threshold].index[:CANDIDATE_SANITY_CAP]
-            candidate_keys_df = pd.DataFrame(top_candidate_index.tolist(), columns=GROUP_KEYS)
-            candidate_df = affordable_df.merge(candidate_keys_df, on=GROUP_KEYS, how='inner')
+            clean_rent_df = clean_rent_df.merge(candidate_keys_df, on=GROUP_KEYS, how='inner')
+
+        for (c, g, d, a, p), r_group in clean_rent_df.groupby(GROUP_KEYS):
+            r_recent = r_group[r_group['month'].isin(late_fixed_months)]
+            if not r_recent.empty:
+                r_price_recent = r_recent['deposit'].mean()
+            else:
+                r_latest_month = r_group['month'].max()
+                r_price_recent = r_group[r_group['month'] == r_latest_month]['deposit'].mean()
+
+            r_base = r_group[r_group['month'].isin(early_fixed_months)]
+            if not r_base.empty:
+                r_price_base = r_base['deposit'].mean()
+            else:
+                r_half = r_group[r_group['month'].isin(first_half_months)]
+                if not r_half.empty:
+                    r_price_base = r_half['deposit'].mean()
+                else:
+                    r_earliest_month = r_group['month'].min()
+                    r_price_base = r_group[r_group['month'] == r_earliest_month]['deposit'].mean()
+
+            if selected_months_count > 1 and r_price_base > 0:
+                rent_trend = ((r_price_recent - r_price_base) / r_price_base) * 100
+            else:
+                rent_trend = 0.0
+
+            rent_dict[(c, g, d, a, p)] = {
+                'recent_rent': int(r_price_recent),
+                'rent_trend': rent_trend
+            }
+
+    def aggregate_apt_metrics(group):
+        if hasattr(group, 'name') and isinstance(group.name, tuple):
+            c_val, g_val, d_val, a_val, p_val = group.name
         else:
-            candidate_df = affordable_df
+            c_val = group['city'].iloc[0] if 'city' in group.columns else ''
+            g_val = group['gu'].iloc[0] if 'gu' in group.columns else ''
+            d_val = group['dong'].iloc[0] if 'dong' in group.columns else ''
+            a_val = group['apt'].iloc[0] if 'apt' in group.columns else ''
+            p_val = group['supply_pyeong'].iloc[0] if 'supply_pyeong' in group.columns else 0
 
-        rent_dict = {}
-        if not view_rent_df.empty:
-            clean_rent_df = view_rent_df[view_rent_df['floor'] > 3]
-            if clean_rent_df.empty:
-                clean_rent_df = view_rent_df
-            if candidates_limited:
-                clean_rent_df = clean_rent_df.merge(candidate_keys_df, on=GROUP_KEYS, how='inner')
+        total_count = len(group)
+        max_price_val = group['price'].max()
+        mean_area = group['area'].mean()
+        
+        clean_group = group[(group['floor'] > 3) & (group['deal_type'] != '직거래')]
+        if clean_group.empty:
+            clean_group = group
 
-            for (c, g, d, a, p), r_group in clean_rent_df.groupby(GROUP_KEYS):
-                r_recent = r_group[r_group['month'].isin(late_fixed_months)]
-                if not r_recent.empty:
-                    r_price_recent = r_recent['deposit'].mean()
-                else:
-                    r_latest_month = r_group['month'].max()
-                    r_price_recent = r_group[r_group['month'] == r_latest_month]['deposit'].mean()
+        recent_deals = clean_group[clean_group['month'].isin(late_fixed_months)]
+        if not recent_deals.empty:
+            recent_mean = recent_deals['price'].mean()
+        else:
+            latest_month_of_apt = clean_group['month'].max()
+            recent_mean = clean_group[clean_group['month'] == latest_month_of_apt]['price'].mean()
 
-                r_base = r_group[r_group['month'].isin(early_fixed_months)]
-                if not r_base.empty:
-                    r_price_base = r_base['deposit'].mean()
-                else:
-                    r_half = r_group[r_group['month'].isin(first_half_months)]
-                    if not r_half.empty:
-                        r_price_base = r_half['deposit'].mean()
-                    else:
-                        r_earliest_month = r_group['month'].min()
-                        r_price_base = r_group[r_group['month'] == r_earliest_month]['deposit'].mean()
-
-                if selected_months_count > 1 and r_price_base > 0:
-                    rent_trend = ((r_price_recent - r_price_base) / r_price_base) * 100
-                else:
-                    rent_trend = 0.0
-
-                rent_dict[(c, g, d, a, p)] = {
-                    'recent_rent': int(r_price_recent),
-                    'rent_trend': rent_trend
-                }
-
-        def aggregate_apt_metrics(group):
-            if hasattr(group, 'name') and isinstance(group.name, tuple):
-                c_val, g_val, d_val, a_val, p_val = group.name
+        base_deals = clean_group[clean_group['month'].isin(early_fixed_months)]
+        if not base_deals.empty:
+            base_mean = base_deals['price'].mean()
+        else:
+            first_half_deals = clean_group[clean_group['month'].isin(first_half_months)]
+            if not first_half_deals.empty:
+                base_mean = first_half_deals['price'].mean()
             else:
-                c_val = group['city'].iloc[0] if 'city' in group.columns else ''
-                g_val = group['gu'].iloc[0] if 'gu' in group.columns else ''
-                d_val = group['dong'].iloc[0] if 'dong' in group.columns else ''
-                a_val = group['apt'].iloc[0] if 'apt' in group.columns else ''
-                p_val = group['supply_pyeong'].iloc[0] if 'supply_pyeong' in group.columns else 0
+                earliest_month_of_apt = clean_group['month'].min()
+                base_mean = clean_group[clean_group['month'] == earliest_month_of_apt]['price'].mean()
 
-            total_count = len(group)
-            max_price_val = group['price'].max()
-            mean_area = group['area'].mean()
+        if selected_months_count > 1 and base_mean > 0:
+            trend_rate = ((recent_mean - base_mean) / base_mean) * 100
+        else:
+            trend_rate = 0.0
+
+        mean_pyeong_exact = clean_group['pyeong_exact'].mean() if 'pyeong_exact' in clean_group.columns else 0
+        price_per_pyeong_val = (recent_mean / mean_pyeong_exact) if mean_pyeong_exact and mean_pyeong_exact > 0 else None
+
+        rent_info = rent_dict.get((c_val, g_val, d_val, a_val, p_val), None)
+        if rent_info:
+            rent_val = rent_info['recent_rent']
+            jeonse_rate = (rent_val / recent_mean) * 100
+            rent_trend = rent_info['rent_trend']
+        else:
+            rent_val = None
+            jeonse_rate = None
+            rent_trend = None
+
+        return pd.Series({
+            '거래건수': total_count,
+            '최근실거래가': recent_mean,
+            '초기기준시세': base_mean,
+            '변동률': trend_rate,
+            '조회기간최고가': max_price_val,
+            '평단가': price_per_pyeong_val,
+            '최근전세가': rent_val,
+            '전세가율': jeonse_rate,
+            '전세변동률': rent_trend,
+            '전용면적_평균': mean_area
+        })
+
+    try:
+        apt_rank = candidate_df.groupby(GROUP_KEYS).apply(
+            aggregate_apt_metrics, include_groups=False
+        ).reset_index()
+    except TypeError:
+        apt_rank = candidate_df.groupby(GROUP_KEYS).apply(
+            aggregate_apt_metrics
+        ).reset_index()
+
+    apt_rank['상태배지'] = apt_rank['변동률'].apply(get_trend_badge)
+    apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(15).reset_index(drop=True)
+
+    apt_rank['최근실거래가_fmt'] = apt_rank['최근실거래가'].astype(int).apply(format_price)
+    apt_rank['조회기간최고가_fmt'] = apt_rank['조회기간최고가'].astype(int).apply(format_price)
+    apt_rank['평단가_fmt'] = apt_rank['평단가'].apply(lambda x: f"{int(x):,}만" if pd.notna(x) and x > 0 else "-")
+    apt_rank['최근전세가_fmt'] = apt_rank['최근전세가'].apply(lambda x: format_price(x) if pd.notna(x) else "-")
+    apt_rank['전세가율_fmt'] = apt_rank['전세가율'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "-")
+    apt_rank['전세변동_fmt'] = apt_rank['전세변동률'].apply(format_trend_text)
+    apt_rank['전용면적_평형'] = apt_rank['전용면적_평균'].apply(
+        lambda x: f"{x:.1f}㎡ ({int(round((x/3.30578)/0.745))}평형)"
+    )
+
+    medals = ['🥇', '🥈', '🥉']
+    top3 = apt_rank.head(3)
+    if len(top3) > 0:
+        top_cols = st.columns(len(top3))
+        for i, (_, row) in enumerate(top3.iterrows()):
+            apt_name = html.escape(str(row['apt']))
+            loc_txt = html.escape(f"{row['city']} {row['gu']} {row['dong']} · {row['전용면적_평형']}")
+            trend_badge_html = row['상태배지']
             
-            clean_group = group[(group['floor'] > 3) & (group['deal_type'] != '직거래')]
-            if clean_group.empty:
-                clean_group = group
-
-            recent_deals = clean_group[clean_group['month'].isin(late_fixed_months)]
-            if not recent_deals.empty:
-                recent_mean = recent_deals['price'].mean()
+            if row['전세가율_fmt'] != "-":
+                jeonse_trend_str = f"전세 {trend_label} {row['전세변동_fmt']}" if row['전세변동_fmt'] != "-" else ""
+                jeonse_html = f'<div class="rank-jeonse-box">전세 {row["최근전세가_fmt"]} (<b>전세가율 {row["전세가율_fmt"]}</b>)<br><span style="font-size:0.71rem; color:var(--ink-secondary);">{jeonse_trend_str}</span></div>'
             else:
-                latest_month_of_apt = clean_group['month'].max()
-                recent_mean = clean_group[clean_group['month'] == latest_month_of_apt]['price'].mean()
+                jeonse_html = '<div class="rank-jeonse-box" style="color:var(--ink-muted); border-color:var(--border-hairline);">최근 전세 거래 없음</div>'
 
-            base_deals = clean_group[clean_group['month'].isin(early_fixed_months)]
-            if not base_deals.empty:
-                base_mean = base_deals['price'].mean()
-            else:
-                first_half_deals = clean_group[clean_group['month'].isin(first_half_months)]
-                if not first_half_deals.empty:
-                    base_mean = first_half_deals['price'].mean()
-                else:
-                    earliest_month_of_apt = clean_group['month'].min()
-                    base_mean = clean_group[clean_group['month'] == earliest_month_of_apt]['price'].mean()
-
-            if selected_months_count > 1 and base_mean > 0:
-                trend_rate = ((recent_mean - base_mean) / base_mean) * 100
-            else:
-                trend_rate = 0.0
-
-            mean_pyeong_exact = clean_group['pyeong_exact'].mean() if 'pyeong_exact' in clean_group.columns else 0
-            price_per_pyeong_val = (recent_mean / mean_pyeong_exact) if mean_pyeong_exact and mean_pyeong_exact > 0 else None
-
-            rent_info = rent_dict.get((c_val, g_val, d_val, a_val, p_val), None)
-            if rent_info:
-                rent_val = rent_info['recent_rent']
-                jeonse_rate = (rent_val / recent_mean) * 100
-                rent_trend = rent_info['rent_trend']
-            else:
-                rent_val = None
-                jeonse_rate = None
-                rent_trend = None
-
-            return pd.Series({
-                '거래건수': total_count,
-                '최근실거래가': recent_mean,
-                '초기기준시세': base_mean,
-                '변동률': trend_rate,
-                '조회기간최고가': max_price_val,
-                '평단가': price_per_pyeong_val,
-                '최근전세가': rent_val,
-                '전세가율': jeonse_rate,
-                '전세변동률': rent_trend,
-                '전용면적_평균': mean_area
-            })
-
-        try:
-            apt_rank = candidate_df.groupby(GROUP_KEYS).apply(
-                aggregate_apt_metrics, include_groups=False
-            ).reset_index()
-        except TypeError:
-            apt_rank = candidate_df.groupby(GROUP_KEYS).apply(
-                aggregate_apt_metrics
-            ).reset_index()
-
-        apt_rank['상태배지'] = apt_rank['변동률'].apply(get_trend_badge)
-        apt_rank = apt_rank.sort_values(by='거래건수', ascending=False).head(15).reset_index(drop=True)
-
-        apt_rank['최근실거래가_fmt'] = apt_rank['최근실거래가'].astype(int).apply(format_price)
-        apt_rank['조회기간최고가_fmt'] = apt_rank['조회기간최고가'].astype(int).apply(format_price)
-        apt_rank['평단가_fmt'] = apt_rank['평단가'].apply(lambda x: f"{int(x):,}만" if pd.notna(x) and x > 0 else "-")
-        apt_rank['최근전세가_fmt'] = apt_rank['최근전세가'].apply(lambda x: format_price(x) if pd.notna(x) else "-")
-        apt_rank['전세가율_fmt'] = apt_rank['전세가율'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "-")
-        apt_rank['전세변동_fmt'] = apt_rank['전세변동률'].apply(format_trend_text)
-        apt_rank['전용면적_평형'] = apt_rank['전용면적_평균'].apply(
-            lambda x: f"{x:.1f}㎡ ({int(round((x/3.30578)/0.745))}평형)"
-        )
-
-        medals = ['🥇', '🥈', '🥉']
-        top3 = apt_rank.head(3)
-        if len(top3) > 0:
-            top_cols = st.columns(len(top3))
-            for i, (_, row) in enumerate(top3.iterrows()):
-                apt_name = html.escape(str(row['apt']))
-                loc_txt = html.escape(f"{row['city']} {row['gu']} {row['dong']} · {row['전용면적_평형']}")
-                trend_badge_html = row['상태배지']
-                
-                if row['전세가율_fmt'] != "-":
-                    jeonse_trend_str = f"전세 {trend_label} {row['전세변동_fmt']}" if row['전세변동_fmt'] != "-" else ""
-                    jeonse_html = f'<div class="rank-jeonse-box">전세 {row["최근전세가_fmt"]} (<b>전세가율 {row["전세가율_fmt"]}</b>)<br><span style="font-size:0.71rem; color:var(--ink-secondary);">{jeonse_trend_str}</span></div>'
-                else:
-                    jeonse_html = '<div class="rank-jeonse-box" style="color:var(--ink-muted); border-color:var(--border-hairline);">최근 전세 거래 없음</div>'
-
-                card_html = (
-                    f'<div class="rank-card">'
-                    f'<div>'
-                    f'<div class="rank-badge">{medals[i]}</div>'
-                    f'<div class="rank-apt">{apt_name}</div>'
-                    f'<div class="rank-loc">{loc_txt}</div>'
-                    f'<div>{trend_badge_html}</div>'
-                    f'<div class="rank-price">{row["최근실거래가_fmt"]}원</div>'
-                    f'<div class="rank-meta">평당 {row["평단가_fmt"]}원 · 총 {int(row["거래건수"])}건 거래 · 최고가 {row["조회기간최고가_fmt"]}원</div>'
-                    f'</div>'
-                    f'{jeonse_html}'
-                    f'</div>'
-                )
-
-                with top_cols[i]:
-                    st.markdown(card_html, unsafe_allow_html=True)
-            st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
-
-        # 4위 이하 단지 표 (평단가를 최근 매매가 앞으로 배치)
-        rest = apt_rank.iloc[3:].copy()
-        if not rest.empty:
-            rest['매매기간변동'] = rest['변동률'].apply(format_trend_text)
-            rest['거래건수'] = rest['거래건수'].astype(int)
-
-            rest_display = rest[[
-                'city', 'gu', 'dong', 'apt', '전용면적_평형', '전세가율_fmt', '거래건수',
-                '평단가_fmt', '최근실거래가_fmt', '매매기간변동', '최근전세가_fmt', '전세변동_fmt'
-            ]].copy()
-            rest_display.columns = [
-                '시·군', '구', '법정동', '단지명', '면적(공급평형)', '전세가율', '거래건수',
-                '평단가(만원)', '최근 매매가', f'매매 {trend_label}', '최근 전세가', f'전세 {trend_label}'
-            ]
-            rest_display.index = range(4, 4 + len(rest_display))
-            max_txn = int(apt_rank['거래건수'].max())
-            
-            table_height = (len(rest_display) + 1) * 36 + 15
-            
-            st.dataframe(
-                rest_display,
-                use_container_width=True,
-                height=table_height,
-                column_config={
-                    "거래건수": st.column_config.ProgressColumn(
-                        "거래건수", format="%d건", min_value=0, max_value=max_txn
-                    )
-                }
+            card_html = (
+                f'<div class="rank-card">'
+                f'<div>'
+                f'<div class="rank-badge">{medals[i]}</div>'
+                f'<div class="rank-apt">{apt_name}</div>'
+                f'<div class="rank-loc">{loc_txt}</div>'
+                f'<div>{trend_badge_html}</div>'
+                f'<div class="rank-price">{row["최근실거래가_fmt"]}원</div>'
+                f'<div class="rank-meta">평당 {row["평단가_fmt"]}원 · 총 {int(row["거래건수"])}건 거래 · 최고가 {row["조회기간최고가_fmt"]}원</div>'
+                f'</div>'
+                f'{jeonse_html}'
+                f'</div>'
             )
+
+            with top_cols[i]:
+                st.markdown(card_html, unsafe_allow_html=True)
+        st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+
+    # 4위 이하 단지 표 ('평단가'를 '최근 매매가' 앞으로 배치)[cite: 4]
+    rest = apt_rank.iloc[3:].copy()
+    if not rest.empty:
+        rest['매매기간변동'] = rest['변동률'].apply(format_trend_text)
+        rest['거래건수'] = rest['거래건수'].astype(int)
+
+        rest_display = rest[[
+            'city', 'gu', 'dong', 'apt', '전용면적_평형', '전세가율_fmt', '거래건수',
+            '평단가_fmt', '최근실거래가_fmt', '매매기간변동', '최근전세가_fmt', '전세변동_fmt'
+        ]].copy()
+        rest_display.columns = [
+            '시·군', '구', '법정동', '단지명', '면적(공급평형)', '전세가율', '거래건수',
+            '평단가(만원)', '최근 매매가', f'매매 {trend_label}', '최근 전세가', f'전세 {trend_label}'
+        ]
+        rest_display.index = range(4, 4 + len(rest_display))
+        max_txn = int(apt_rank['거래건수'].max())
+        
+        table_height = (len(rest_display) + 1) * 36 + 15
+        
+        st.dataframe(
+            rest_display,
+            use_container_width=True,
+            height=table_height,
+            column_config={
+                "거래건수": st.column_config.ProgressColumn(
+                    "거래건수", format="%d건", min_value=0, max_value=max_txn
+                )
+            }
+        )
