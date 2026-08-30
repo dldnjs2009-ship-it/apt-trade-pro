@@ -365,9 +365,6 @@ def get_http_session():
 
 HTTP_SESSION = get_http_session()
 
-# ─────────────────────────────────────────────────────────
-# 지역코드(법정동코드) 안내
-# ─────────────────────────────────────────────────────────
 REGION_STRUCTURE = {
     "경기도": {
         "성남시": {"분당구": "41135", "수정구": "41131", "중원구": "41133"},
@@ -743,7 +740,7 @@ if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기", 
     st.cache_data.clear()
     st.rerun()
 
-# [1] 조회 기간 선택 (슬라이더 스크롤 방식으로 개월 수 조절)
+# [1] 조회 기간 선택 (슬라이더 스크롤 방식)
 selected_months_count = st.sidebar.slider(
     "📅 조회 기간 선택",
     min_value=1,
@@ -1114,9 +1111,20 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 # ── 8. 차트 및 동별 순위표 (차트 40% : 순위표 60%) ─────────────
 c1, c2 = st.columns([2, 3])
 
-display_title = f"{selected_sido} {scope_name}"
-if selected_sido == "경기도" and selected_gu != f"{selected_city} 전체":
-    display_title = f"{selected_city} {selected_gu}"
+# [수정] 지역명 중복 표기 제거
+if selected_sido == "경기도":
+    if selected_city == "경기도 전체":
+        display_title = "경기도 전체"
+    elif selected_gu == f"{selected_city} 전체":
+        display_title = f"경기도 {selected_city}"
+    else:
+        display_title = f"{selected_city} {selected_gu}"
+else:
+    if selected_gu_direct == f"{selected_sido} 전체":
+        display_title = f"{selected_sido} 전체"
+    else:
+        display_title = f"{selected_sido} {selected_gu_direct}"
+
 if selected_dong != '전체 보기':
     display_title += f" {selected_dong}"
 
@@ -1167,13 +1175,17 @@ st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 # ── 9. 추천 단지 TOP 15 (슬라이더 개월수 맞춤 변동 추세 및 전세가율) ───
 trend_label = f"{selected_months_count}개월 변동" if selected_months_count > 1 else "변동률"
 
+# [수정] 헤더 타이틀에 슬라이더 조회 개월 수 표기
 if calc_enabled:
     st.markdown(
-        f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 맞춤 실거래 추천 단지 TOP 15</div>',
+        f'<div class="section-title">🏆 내 예산({max_affordable_price // 10000}억 이하) 최근 {selected_months_count}개월 맞춤 실거래 추천 단지 TOP 15</div>',
         unsafe_allow_html=True
     )
 else:
-    st.markdown(f'<div class="section-title">🏆 {display_title} 실거래 인기 단지 TOP 15</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="section-title">🏆 {display_title} 최근 {selected_months_count}개월 실거래 인기 단지 TOP 15</div>',
+        unsafe_allow_html=True
+    )
 
 if affordable_df.empty:
     st.info("현재 설정된 조건(면적/예산 필터)으로 매수 가능한 실거래 아파트가 없습니다.")
@@ -1190,7 +1202,7 @@ else:
         late_fixed_months = all_period_months
         first_half_months = all_period_months
 
-    # 전세 데이터 사전 집계 (단지+평형별 최근 전세가 및 변동률)
+    # 전세 데이터 사전 집계 (단지+평형별 최근 전세가 및 6개월 전세 변동률)
     rent_dict = {}
     if not view_rent_df.empty:
         clean_rent_df = view_rent_df[view_rent_df['floor'] > 3]
@@ -1353,7 +1365,7 @@ else:
                 st.markdown(card_html, unsafe_allow_html=True)
         st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
-    # 4위 이하 단지 표 (전세가율 컬럼을 거래건수 바로 앞으로 배치)
+    # 4위 이하 단지 표 (전세가율을 거래건수 앞으로 배치 & 12개 행 전체가 한 번에 보이도록 높이 자동 확장)
     rest = apt_rank.iloc[3:].copy()
     if not rest.empty:
         rest['매매기간변동'] = rest['변동률'].apply(format_trend_text)
@@ -1370,9 +1382,13 @@ else:
         rest_display.index = range(4, 4 + len(rest_display))
         max_txn = int(apt_rank['거래건수'].max())
         
+        # [수정] 4~15등(최대 12개 행)이 스크롤 없이 완전히 보이도록 동적 높이 지정
+        table_height = (len(rest_display) + 1) * 36 + 15
+        
         st.dataframe(
             rest_display,
             use_container_width=True,
+            height=table_height,
             column_config={
                 "거래건수": st.column_config.ProgressColumn(
                     "거래건수", format="%d건", min_value=0, max_value=max_txn
