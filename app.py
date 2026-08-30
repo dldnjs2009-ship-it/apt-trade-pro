@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 import requests
@@ -316,7 +317,26 @@ def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFr
 
 
 # ── 2. 기본 설정, 세션 풀 및 방문자 집계 ──────────────────
-DECODING_KEY = 'HFLjN2wHoX4g3U2XNaBnhqTWwhmqxMqr9B2TcPbOZV9dJn8xZlFtiiymS0QNo7vbQEnk744KO+byEhW7SOucBA=='
+def _get_secret(key: str, env_fallback: str = None) -> str:
+    """st.secrets → 환경변수 순으로 민감정보를 조회. 둘 다 없으면 앱 실행을 중단."""
+    value = None
+    try:
+        value = st.secrets.get(key)
+    except Exception:
+        value = None
+    if not value and env_fallback:
+        value = os.environ.get(env_fallback)
+    if not value:
+        st.error(
+            f"⚠️ 필수 설정값 `{key}`이(가) 없습니다.\n\n"
+            "로컬에서는 `.streamlit/secrets.toml`에, Streamlit Cloud에서는 "
+            "앱 설정의 Secrets 메뉴에 값을 등록해주세요."
+        )
+        st.stop()
+    return value
+
+
+DECODING_KEY = _get_secret("DATA_GO_KR_SERVICE_KEY", env_fallback="DATA_GO_KR_SERVICE_KEY")
 ENCODING_KEY = urllib.parse.quote(DECODING_KEY)
 
 TRADE_BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
@@ -717,9 +737,16 @@ st.sidebar.markdown("### ⚙️ 대시보드 설정")
 
 with st.sidebar.expander("🔒 관리자 모드 (방문자 확인)", expanded=False):
     admin_password = st.text_input("비밀번호 입력", type="password", key="admin_auth_pwd")
-    ADMIN_SECRET_KEY = "7576"
+    try:
+        ADMIN_SECRET_KEY = st.secrets.get("ADMIN_PASSWORD")
+    except Exception:
+        ADMIN_SECRET_KEY = None
+    if not ADMIN_SECRET_KEY:
+        ADMIN_SECRET_KEY = os.environ.get("ADMIN_PASSWORD")
 
-    if admin_password == ADMIN_SECRET_KEY:
+    if not ADMIN_SECRET_KEY:
+        st.caption("⚠️ 관리자 비밀번호가 설정되지 않았습니다 (secrets.toml의 ADMIN_PASSWORD 확인).")
+    elif admin_password == ADMIN_SECRET_KEY:
         st.success("인증 완료")
         today_visitors = visitor_storage["daily"].get(today_key, 0)
         total_visitors = visitor_storage["total"]
