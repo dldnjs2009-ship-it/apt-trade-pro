@@ -139,12 +139,7 @@ div[data-testid="stRadio"] > div {
     font-size: .77rem; color: var(--jeonse-blue); font-weight: 700; line-height: 1.4;
 }
 
-/* 비교 설정 카드 */
-.compare-setup-card {
-    background: var(--surface); border-radius: 14px; padding: 16px;
-    border: 1px solid var(--border-hairline); box-shadow: 0 2px 8px rgba(0,0,0,0.03);
-    margin-bottom: 12px;
-}
+/* 비교 카드 */
 .compare-box {
     background: var(--surface); border-radius: 12px; padding: 14px;
     border: 1px solid var(--border-hairline); box-shadow: 0 2px 6px rgba(0,0,0,0.03);
@@ -234,11 +229,16 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # ── 1-2. 보조 연산 및 부대비용/면적 환산 함수 ──────────────────
 def format_price(x: int) -> str:
-    """만원 단위 정수를 'N억 N,NNN만' 형식 문자열로 변환."""
+    """만원 단위 정수를 'N억 N,NNN만' 형식 문자열로 변환 (0만인 경우 생략)."""
     if pd.isna(x) or x is None or int(x) <= 0:
         return "-"
     x = int(x)
-    return f"{x // 10000}억 {x % 10000:,}만" if x >= 10000 else f"{x:,}만"
+    if x >= 10000:
+        eok = x // 10000
+        man = x % 10000
+        return f"{eok}억 {man:,}만" if man > 0 else f"{eok}억"
+    else:
+        return f"{x:,}만"
 
 
 def get_pyeong_group_key(m2: float) -> tuple:
@@ -789,7 +789,7 @@ def fetch_all_target_records(target_list_tuples, target_months_tuple, fetch_rent
     return pd.DataFrame(all_trade_records), pd.DataFrame(all_rent_records), error_messages
 
 
-# ── [신규] 비교 모드용 단지/평형 메타데이터 추출 캐시 함수 ─────
+# ── [비교 모드용 단지/평형 메타데이터 추출 캐시 함수] ────────
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_region_apt_metadata(code: str, sido: str, city: str, gu: str):
     """시·군·구 내 최근 실거래된 아파트 단지명 및 공급평형 목록을 빠르게 추출"""
@@ -1164,6 +1164,7 @@ if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
 
                 fig_cmp = go.Figure()
                 summary_metrics = []
+                all_y_values = []
 
                 for cfg in apt_configs:
                     sub = clean_cmp_df[clean_cmp_df['apt'].str.contains(cfg['name'], case=False, na=False)]
@@ -1175,14 +1176,18 @@ if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
                         continue
 
                     monthly_series = sub.groupby('month')['price'].mean().sort_index()
+                    all_y_values.extend(monthly_series.values)
+                    custom_prices = [format_price(int(v)) + "원" for v in monthly_series.values]
+
                     fig_cmp.add_trace(go.Scatter(
                         x=monthly_series.index,
                         y=monthly_series.values,
+                        customdata=custom_prices,
                         mode='lines+markers',
                         name=cfg['label'],
                         line=dict(color=cfg['color'], width=2.5),
                         marker=dict(size=4, color=cfg['color']),
-                        hovertemplate="%{x}<br><b>" + cfg['label'] + ": %{y:,.0f}만원</b><extra></extra>"
+                        hovertemplate="%{x}<br><b>" + cfg['label'] + ": %{customdata}</b><extra></extra>"
                     ))
 
                     latest_m = sub['month'].max()
@@ -1199,6 +1204,38 @@ if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
                         "count": len(sub)
                     })
 
+                # [수정] Plotly Y축 눈금(Tick) 단위 100만k 왜곡 방지 및 한글 통화(억/만) 포맷팅
+                if all_y_values:
+                    min_y = min(all_y_values)
+                    max_y = max(all_y_values)
+                    diff_y = max_y - min_y
+
+                    if diff_y <= 20000:
+                        step_y = 2000
+                    elif diff_y <= 50000:
+                        step_y = 5000
+                    elif diff_y <= 100000:
+                        step_y = 10000
+                    elif diff_y <= 300000:
+                        step_y = 20000
+                    else:
+                        step_y = 50000
+
+                    start_tick = (int(min_y) // step_y) * step_y
+                    end_tick = ((int(max_y) // step_y) + 2) * step_y
+                    tick_vals = list(range(start_tick, end_tick, step_y))
+                    tick_texts = [format_price(v) for v in tick_vals]
+
+                    yaxis_dict = dict(
+                        gridcolor="#e1e0d9",
+                        zeroline=False,
+                        tickvals=tick_vals,
+                        ticktext=tick_texts,
+                        tickformat=""
+                    )
+                else:
+                    yaxis_dict = dict(gridcolor="#e1e0d9", zeroline=False)
+
                 fig_cmp.update_layout(
                     plot_bgcolor="#fcfcfb",
                     paper_bgcolor="rgba(0,0,0,0)",
@@ -1206,12 +1243,13 @@ if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
                     height=380,
                     font=dict(family="Pretendard, sans-serif", color="#52514e", size=11),
                     xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
-                    yaxis=dict(gridcolor="#e1e0d9", zeroline=False, ticksuffix="만"),
+                    yaxis=yaxis_dict,
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
 
                 st.plotly_chart(fig_cmp, use_container_width=True, config={"displayModeBar": False})
 
+                # [수정] 3개 단지 선택 시에도 완벽하게 연동되는 시세 격차(Gap) 순위 분석
                 if summary_metrics:
                     cols_sum = st.columns(len(summary_metrics))
                     for idx, sm in enumerate(summary_metrics):
@@ -1226,10 +1264,21 @@ if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
                             </div>
                             """, unsafe_allow_html=True)
 
-                    if len(summary_metrics) >= 2:
-                        gap_diff = abs(summary_metrics[0]['latest_price'] - summary_metrics[1]['latest_price'])
-                        higher = summary_metrics[0]['label'] if summary_metrics[0]['latest_price'] >= summary_metrics[1]['latest_price'] else summary_metrics[1]['label']
-                        st.info(f"💡 **[현재 시세 격차(Gap) 분석]** 최근 거래 기준 **{higher}** 시세가 **{format_price(gap_diff)}원** 더 높게 형성되어 있습니다.")
+                    sorted_sm = sorted(summary_metrics, key=lambda x: x['latest_price'], reverse=True)
+
+                    if len(sorted_sm) == 2:
+                        gap_diff = sorted_sm[0]['latest_price'] - sorted_sm[1]['latest_price']
+                        st.info(f"💡 **[현재 시세 격차(Gap) 분석]** 최근 거래 기준 **{sorted_sm[0]['label']}** 시세가 **{sorted_sm[1]['label']}**보다 **{format_price(gap_diff)}원** 더 높게 형성되어 있습니다.")
+                    elif len(sorted_sm) >= 3:
+                        gap_1_2 = sorted_sm[0]['latest_price'] - sorted_sm[1]['latest_price']
+                        gap_2_3 = sorted_sm[1]['latest_price'] - sorted_sm[2]['latest_price']
+                        gap_1_3 = sorted_sm[0]['latest_price'] - sorted_sm[2]['latest_price']
+                        st.info(
+                            f"💡 **[현재 시세 격차(Gap) 순위 분석]**\n\n"
+                            f"* 🥇 **1위 {sorted_sm[0]['label']}**: {format_price(sorted_sm[0]['latest_price'])}원\n"
+                            f"* 🥈 **2위 {sorted_sm[1]['label']}**: {format_price(sorted_sm[1]['latest_price'])}원 (1위 대비 -{format_price(gap_1_2)}원)\n"
+                            f"* 🥉 **3위 {sorted_sm[2]['label']}**: {format_price(sorted_sm[2]['latest_price'])}원 (2위 대비 -{format_price(gap_2_3)}원 / 1위 대비 -{format_price(gap_1_3)}원)"
+                        )
 
 # ═════════════════════════════════════════════════════════
 # [모드 1 & 2] 기존 4단계 지역 필터 및 데이터 파이프라인
@@ -1640,10 +1689,10 @@ else:
                                     <div>{badge_html}</div>
                                     <div class="rank-price">{row['올해현재가_fmt']}원</div>
                                     <div class="rank-meta">2025년 최고가 {row['작년최고가_fmt']}원</div>
+                                </div>
+                                <div class="rank-jeonse-box">{jeonse_str}</div>
                             </div>
-                            <div class="rank-jeonse-box">{jeonse_str}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                            """, unsafe_allow_html=True)
 
                     st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
