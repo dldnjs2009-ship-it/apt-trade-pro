@@ -28,8 +28,9 @@ jobs:
       - name: 입주물량 수집 스크립트 실행
         env:
           DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+          PYTHONUNBUFFERED: "1"
         run: |
-          python scripts/update_supply.py
+          python -u scripts/update_supply.py
 
       - name: 변경사항 Git 커밋 및 푸시
         run: |
