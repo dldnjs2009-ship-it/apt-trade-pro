@@ -40,5 +40,5 @@ jobs:
             echo "변경사항이 없습니다."
           else
             git commit -m "chore: $(date +'%Y-%m-%d') 신축 아파트 입주물량 데이터 정기 자동 업데이트"
-            git push
+            git push origin HEAD:main
           fi
