@@ -50,11 +50,124 @@ def fetch_applyhome_api(api_key: str):
     records = []
     page = 1
     per_page = 100
-    MAX_PAGES = 300  # ← 15에서 대폭 상향: 과거(2015~) 데이터까지 누락 없이 모두 수집하기 위함
+    MAX_PAGES = 300  # 과거(2015~) 데이터까지 누락 없이 모두 수집하기 위해 상향
     oldest_seen = None
     newest_seen = None
 
     print("📡 한국부동산원 청약홈 공식 API로부터 입주예정 단지 수집 시작...")
 
     while True:
-        params
+        params = {
+            "page": page,
+            "perPage": per_page,
+            "serviceKey": api_key
+        }
+
+        try:
+            res = requests.get(API_URL, params=params, timeout=15)
+        except Exception as e:
+            print(f"API 요청 오류 발생: {e}")
+            break
+
+        if res.status_code != 200:
+            print(f"API 응답 실패 (HTTP {res.status_code})")
+            print(f"응답 본문 일부: {res.text[:300]}")
+            break
+
+        try:
+            data = res.json()
+        except Exception:
+            print("JSON 응답 파싱 실패")
+            break
+
+        items = data.get("data", [])
+        if not items:
+            print(f"  - {page}페이지: 더 이상 데이터 없음 (종료)")
+            break
+
+        for item in items:
+            house_nm = str(item.get("HOUSE_NM", "")).strip()
+            addr = str(item.get("HSSPLY_ADRES", "")).strip()
+            mvn_ym = str(item.get("MVN_PREARNGE_YM", "")).strip().replace(".", "").replace("-", "")
+            tot_hshld = item.get("TOT_SUPLY_HSHLDCO", 0)
+            brand = str(item.get("BSNS_MBY_NM", "")).strip() or "민간분양"
+
+            if len(mvn_ym) >= 6:
+                if oldest_seen is None or mvn_ym < oldest_seen:
+                    oldest_seen = mvn_ym
+                if newest_seen is None or mvn_ym > newest_seen:
+                    newest_seen = mvn_ym
+
+            if len(mvn_ym) >= 6:
+                try:
+                    s_year = int(mvn_ym[:4])
+                    s_month = f"{mvn_ym[:4]}-{mvn_ym[4:6]}"
+                except ValueError:
+                    continue
+
+                if 2015 <= s_year <= 2030:
+                    sido, city, gu, dong = parse_korean_address(addr)
+                    if sido and city:
+                        try:
+                            h_count = int(tot_hshld)
+                        except (ValueError, TypeError):
+                            h_count = 0
+
+                        if h_count > 0:
+                            records.append({
+                                "sido": sido,
+                                "city": city,
+                                "gu": gu,
+                                "dong": dong,
+                                "apt": house_nm,
+                                "supply_year": s_year,
+                                "supply_month": s_month,
+                                "households": h_count,
+                                "pyeong_info": "일반/국평형",
+                                "brand": brand
+                            })
+
+        print(f"  - {page}페이지 수집 완료 ({len(items)}건 조회, 누적 {len(records)}건)")
+
+        if len(items) < per_page or page >= MAX_PAGES:
+            if page >= MAX_PAGES:
+                print(f"⚠️ 경고: 최대 페이지 제한({MAX_PAGES}페이지)에 도달하여 중단되었습니다.")
+            break
+        page += 1
+
+    print(f"📅 이번 수집에서 확인된 입주연월 범위: {oldest_seen} ~ {newest_seen}")
+    print(f"총 {len(records)}개의 유효 신축 분양 단지가 수집되었습니다.")
+    return records
+
+def update_csv():
+    api_key = os.environ.get("DATA_GO_KR_SERVICE_KEY")
+    if not api_key:
+        print("경고: DATA_GO_KR_SERVICE_KEY 환경변수가 설정되지 않았습니다.")
+        return
+
+    api_records = fetch_applyhome_api(api_key)
+
+    if os.path.exists(CSV_PATH):
+        try:
+            df_old = pd.read_csv(CSV_PATH)
+        except Exception:
+            df_old = pd.DataFrame(columns=COLUMNS)
+    else:
+        df_old = pd.DataFrame(columns=COLUMNS)
+
+    if api_records:
+        df_new = pd.DataFrame(api_records)
+        combined = pd.concat([df_old, df_new], ignore_index=True)
+    else:
+        combined = df_old
+
+    if not combined.empty:
+        combined.drop_duplicates(subset=["city", "gu", "apt", "supply_month"], keep="last", inplace=True)
+        combined.sort_values(by=["supply_month", "households"], ascending=[False, False], inplace=True)
+        combined.to_csv(CSV_PATH, index=False, encoding="utf-8-sig")
+        print(f"🎉 성공: supply_data.csv 갱신 완료 (총 {len(combined)}개 단지 적재)")
+    else:
+        print("적재할 데이터가 없습니다.")
+
+if __name__ == "__main__":
+    update_csv()
