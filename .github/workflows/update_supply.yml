@@ -1,0 +1,44 @@
+name: Update Housing Supply Data
+
+on:
+  schedule:
+    # 6개월마다 자동 실행 (매년 1월 1일, 7월 1일 자정 UTC 기준)
+    - cron: '0 0 1 1,7 *'
+  workflow_dispatch: # GitHub 웹 Actions 탭에서 수동 즉시 실행 가능
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 저장소 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 환경 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 필수 라이브러리 설치
+        run: |
+          pip install pandas requests
+
+      - name: 입주물량 수집 스크립트 실행
+        env:
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+        run: |
+          python scripts/update_supply.py
+
+      - name: 변경사항 Git 커밋 및 푸시
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action Bot"
+          git add supply_data.csv
+          if git diff --staged --quiet; then
+            echo "변경사항이 없습니다."
+          else
+            git commit -m "chore: $(date +'%Y-%m-%d') 신축 아파트 입주물량 데이터 정기 자동 업데이트"
+            git push
+          fi
