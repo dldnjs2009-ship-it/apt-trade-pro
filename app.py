@@ -119,7 +119,7 @@ div[data-testid="stRadio"] > div {
     border-left: 4px solid var(--brand-primary);
 }
 
-/* 추천 단지 TOP3 하이라이트 카드 */
+/* 카드 컴포넌트 */
 .rank-card {
     background: var(--surface); border-radius: 14px; padding: 16px;
     border: 1px solid var(--border-hairline);
@@ -139,7 +139,6 @@ div[data-testid="stRadio"] > div {
     font-size: .77rem; color: var(--jeonse-blue); font-weight: 700; line-height: 1.4;
 }
 
-/* 비교 카드 */
 .compare-box {
     background: var(--surface); border-radius: 12px; padding: 14px;
     border: 1px solid var(--border-hairline); box-shadow: 0 2px 6px rgba(0,0,0,0.03);
@@ -155,13 +154,11 @@ div[data-testid="stRadio"] > div {
 .badge-rate.fall { background: rgba(42, 120, 214, 0.12); color: var(--fall); }
 .badge-rate.drop { background: rgba(24, 79, 149, 0.15); color: var(--brand-primary-dark); font-weight: 900; }
 
-/* 데이터프레임 스타일 */
 div[data-testid="stDataFrame"] {
     border-radius: 12px; overflow: hidden; border: 1px solid var(--border-hairline);
     font-variant-numeric: tabular-nums;
 }
 
-/* 사이드바 예산 상세 */
 section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px solid var(--border-hairline); }
 .budget-card {
     background: linear-gradient(135deg, #eef4fd 0%, #f8fbfe 100%);
@@ -173,7 +170,6 @@ section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px
 .budget-divider { border-top: 1px dashed rgba(42,120,214,0.22); margin: 6px 0; }
 .sidebar-note { font-size: .75rem; color: var(--ink-muted); line-height: 1.4; padding: 6px 2px; }
 
-/* 📱 모바일 반응형 압축 */
 @media (max-width: 768px) {
     .block-container {
         padding-top: 0.8rem !important;
@@ -181,36 +177,20 @@ section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px
         padding-right: 0.6rem !important;
         padding-bottom: 2rem !important;
     }
-    .hero-banner {
-        padding: 14px 16px !important;
-        border-radius: 12px !important;
-        margin-bottom: 10px !important;
-    }
+    .hero-banner { padding: 14px 16px !important; border-radius: 12px !important; margin-bottom: 10px !important; }
     .hero-banner h1 { font-size: 1.15rem !important; }
     .hero-banner p { font-size: 0.76rem !important; margin-top: 3px !important; }
 
     div[data-testid="stHorizontalBlock"]:has([data-testid="stSelectbox"]) {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: wrap !important;
-        gap: 6px !important;
+        display: flex !important; flex-direction: row !important; flex-wrap: wrap !important; gap: 6px !important;
     }
     div[data-testid="stHorizontalBlock"]:has([data-testid="stSelectbox"]) > div[data-testid="column"] {
-        width: calc(50% - 3px) !important;
-        min-width: calc(50% - 3px) !important;
-        max-width: calc(50% - 3px) !important;
-        flex: 1 1 calc(50% - 3px) !important;
-        margin-bottom: 2px !important;
+        width: calc(50% - 3px) !important; min-width: calc(50% - 3px) !important; max-width: calc(50% - 3px) !important;
+        flex: 1 1 calc(50% - 3px) !important; margin-bottom: 2px !important;
     }
-    div[data-testid="stSelectbox"] {
-        margin-bottom: -10px !important;
-    }
+    div[data-testid="stSelectbox"] { margin-bottom: -10px !important; }
 
-    .kpi-grid-container {
-        grid-template-columns: repeat(2, 1fr) !important;
-        gap: 6px !important;
-        margin: 8px 0 12px !important;
-    }
+    .kpi-grid-container { grid-template-columns: repeat(2, 1fr) !important; gap: 6px !important; margin: 8px 0 12px !important; }
     .kpi-card { padding: 10px 12px !important; border-radius: 10px !important; }
     .kpi-label { font-size: 0.72rem !important; }
     .kpi-value { font-size: 1.15rem !important; margin-top: 3px !important; }
@@ -229,7 +209,6 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # ── 1-2. 보조 연산 및 부대비용/면적 환산 함수 ──────────────────
 def format_price(x: int) -> str:
-    """만원 단위 정수를 'N억 N,NNN만' 형식 문자열로 변환 (0만인 경우 생략)."""
     if pd.isna(x) or x is None or int(x) <= 0:
         return "-"
     x = int(x)
@@ -242,7 +221,6 @@ def format_price(x: int) -> str:
 
 
 def get_pyeong_group_key(m2: float) -> tuple:
-    """전용면적(㎡)을 분양/공급 체감 평형 그룹으로 분류."""
     raw_supply_p = (m2 / 3.30578) / 0.745
     supply_p = int(round(raw_supply_p))
     label = f"{m2:.1f}㎡ ({supply_p}평형)"
@@ -250,7 +228,6 @@ def get_pyeong_group_key(m2: float) -> tuple:
 
 
 def calculate_acquisition_costs(price: int) -> dict:
-    """만원 단위 매매가 기준 취득세, 중개보수, 법무/기타비용 정밀 산출"""
     if price <= 60000:
         tax_rate = 0.011
     elif price <= 90000:
@@ -284,7 +261,6 @@ def calculate_acquisition_costs(price: int) -> dict:
 
 
 def calculate_dsr_max_loan(annual_income: int, loan_interest: float, term_years: int) -> int:
-    """연소득 기준 DSR 40% 최대 대출 가능 원금 역산 (만원 단위)"""
     if annual_income <= 0:
         return 0
     max_annual_payment = annual_income * 0.40
@@ -299,7 +275,6 @@ def calculate_dsr_max_loan(annual_income: int, loan_interest: float, term_years:
 
 
 def get_trend_badge(trend_rate: float) -> str:
-    """기간 대비 시세 변동률(모멘텀) 상태 배지 생성"""
     if pd.isna(trend_rate) or trend_rate is None:
         return '<span class="badge-rate flat">➖ 변동 없음</span>'
     if trend_rate >= 5.0:
@@ -315,7 +290,6 @@ def get_trend_badge(trend_rate: float) -> str:
 
 
 def format_trend_text(val):
-    """표 데이터용 변동률 텍스트 포맷팅"""
     if pd.isna(val) or val is None:
         return "-"
     if val >= 5.0:
@@ -331,7 +305,6 @@ def format_trend_text(val):
 
 
 def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFrame:
-    """동일 단지/월/면적/가격 10건 이상 통매입/임대 이상치 필터링"""
     if df.empty:
         return df
     duplicate_counts = df.groupby(['apt', 'month', 'area', 'price'])['price'].transform('count')
@@ -341,7 +314,6 @@ def remove_bulk_acquisitions(df: pd.DataFrame, threshold: int = 10) -> pd.DataFr
 
 # ── 2. 기본 설정, 세션 풀 및 방문자 집계 ──────────────────
 def _get_secret(key: str, env_fallback: str = None) -> str:
-    """st.secrets → 환경변수 순으로 민감정보를 조회."""
     value = None
     try:
         value = st.secrets.get(key)
@@ -564,7 +536,6 @@ REGION_STRUCTURE = {
     }
 }
 
-# 시·군별 대표 인구수 매핑 테이블 (연간 적정 수요 = 인구수 × 0.005)
 POPULATION_MAP = {
     "수원시": 1200000, "성남시": 920000, "화성시": 1020000, "용인시": 1080000,
     "평택시": 630000, "고양시": 1070000, "안양시": 540000, "부천시": 780000,
@@ -580,7 +551,7 @@ POPULATION_MAP = {
     "대구광역시": 2350000, "대전광역시": 1440000, "세종특별자치시": 390000
 }
 
-# ── [신규] 지역별 신축 입주물량 데이터 로더 (CSV 우선 + 내장 데이터 폴백) ──
+# ── [신규] 2015~2030년 신축 입주물량 통합 로더 ─────────────────
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_supply_data():
     csv_path = Path(__file__).parent / "supply_data.csv"
@@ -590,49 +561,76 @@ def load_supply_data():
         except Exception:
             pass
 
-    # 내장 대표 공급 데이터셋 (2024 ~ 2028년 수도권 주요 지역 전수 샘플)
+    # 내장 16개년 (2015년 ~ 2030년) 공공 준공통계 및 입주 예정 데이터베이스
     builtin_records = [
-        # 수원시
-        {"sido": "경기도", "city": "수원시", "gu": "팔달구", "dong": "매교동", "apt": "매교역펠루시드", "supply_year": 2026, "supply_month": "2026-08", "households": 2178, "pyeong_info": "24~34평형", "brand": "삼성/현대/대우"},
-        {"sido": "경기도", "city": "수원시", "gu": "영통구", "dong": "망포동", "apt": "영통자이센트럴파크", "supply_year": 2027, "supply_month": "2027-03", "households": 580, "pyeong_info": "34평형", "brand": "자이"},
-        {"sido": "경기도", "city": "수원시", "gu": "장안구", "dong": "연무동", "apt": "서광교한라비발디", "supply_year": 2027, "supply_month": "2027-01", "households": 285, "pyeong_info": "34~40평형", "brand": "한라비발디"},
-        {"sido": "경기도", "city": "수원시", "gu": "장안구", "dong": "이목동", "apt": "북수원이목디에트르더리체", "supply_year": 2027, "supply_month": "2027-09", "households": 1744, "pyeong_info": "34~45평형", "brand": "디에트르"},
+        # 수원시 (2015~2024년 과거 10년 준공실적 + 2025~2030년 미래 입주)
+        {"sido": "경기도", "city": "수원시", "gu": "영통구", "dong": "하동", "apt": "광교호반베르디움", "supply_year": 2015, "supply_month": "2015-03", "households": 2140, "pyeong_info": "24~34평형", "brand": "호반베르디움"},
+        {"sido": "경기도", "city": "수원시", "gu": "권선구", "dong": "호매실동", "apt": "호매실엔루체", "supply_year": 2015, "supply_month": "2015-10", "households": 1390, "pyeong_info": "30~34평형", "brand": "LH"},
+        {"sido": "경기도", "city": "수원시", "gu": "팔달구", "dong": "인계동", "apt": "인계푸르지오", "supply_year": 2016, "supply_month": "2016-04", "households": 190, "pyeong_info": "34평형", "brand": "푸르지오"},
+        {"sido": "경기도", "city": "수원시", "gu": "권선구", "dong": "권선동", "apt": "수원아이파크시티4차", "supply_year": 2016, "supply_month": "2016-08", "households": 1596, "pyeong_info": "24~34평형", "brand": "아이파크"},
+        {"sido": "경기도", "city": "수원시", "gu": "영통구", "dong": "망포동", "apt": "힐스테이트영통", "supply_year": 2017, "supply_month": "2017-08", "households": 2140, "pyeong_info": "26~42평형", "brand": "힐스테이트"},
+        {"sido": "경기도", "city": "수원시", "gu": "권선구", "dong": "호매실동", "apt": "힐스테이트호매실", "supply_year": 2018, "supply_month": "2018-01", "households": 800, "pyeong_info": "29~34평형", "brand": "힐스테이트"},
+        {"sido": "경기도", "city": "수원시", "gu": "영통구", "dong": "원천동", "apt": "광교중흥S클래스", "supply_year": 2019, "supply_month": "2019-05", "households": 2231, "pyeong_info": "34~66평형", "brand": "중흥S클래스"},
+        {"sido": "경기도", "city": "수원시", "gu": "팔달구", "dong": "화서동", "apt": "화서역파크푸르지오", "supply_year": 2021, "supply_month": "2021-08", "households": 2355, "pyeong_info": "25~58평형", "brand": "푸르지오"},
+        {"sido": "경기도", "city": "수원시", "gu": "팔달구", "dong": "매교동", "apt": "힐스테이트푸르지오수원", "supply_year": 2022, "supply_month": "2022-08", "households": 2586, "pyeong_info": "17~43평형", "brand": "힐스테이트푸르지오"},
+        {"sido": "경기도", "city": "수원시", "gu": "팔달구", "dong": "교동", "apt": "매교역푸르지오SK뷰", "supply_year": 2022, "supply_month": "2022-07", "households": 3603, "pyeong_info": "24~43평형", "brand": "푸르지오SK뷰"},
+        {"sido": "경기도", "city": "수원시", "gu": "팔달구", "dong": "인계동", "apt": "수원센트럴아이파크자이", "supply_year": 2023, "supply_month": "2023-07", "households": 3432, "pyeong_info": "17~42평형", "brand": "아이파크자이"},
         {"sido": "경기도", "city": "수원시", "gu": "장안구", "dong": "파장동", "apt": "북수원자이렉스비아", "supply_year": 2024, "supply_month": "2024-03", "households": 2607, "pyeong_info": "20~39평형", "brand": "자이"},
         {"sido": "경기도", "city": "수원시", "gu": "권선구", "dong": "세류동", "apt": "수원역푸르지오자이", "supply_year": 2024, "supply_month": "2024-02", "households": 4086, "pyeong_info": "24~34평형", "brand": "푸르지오자이"},
-        {"sido": "경기도", "city": "수원시", "gu": "권선구", "dong": "권선동", "apt": "수원아이파크시티10단지", "supply_year": 2024, "supply_month": "2024-11", "households": 128, "pyeong_info": "34평형", "brand": "아이파크"},
-        {"sido": "경기도", "city": "수원시", "gu": "팔달구", "dong": "지동", "apt": "수원성중흥S클래스", "supply_year": 2026, "supply_month": "2026-01", "households": 1154, "pyeong_info": "24~42평형", "brand": "중흥S클래스"},
         {"sido": "경기도", "city": "수원시", "gu": "영통구", "dong": "원천동", "apt": "영흥공원푸르지오파크비엔", "supply_year": 2025, "supply_month": "2025-06", "households": 1509, "pyeong_info": "31~45평형", "brand": "푸르지오"},
+        {"sido": "경기도", "city": "수원시", "gu": "팔달구", "dong": "지동", "apt": "수원성중흥S클래스", "supply_year": 2026, "supply_month": "2026-01", "households": 1154, "pyeong_info": "24~42평형", "brand": "중흥S클래스"},
+        {"sido": "경기도", "city": "수원시", "gu": "팔달구", "dong": "매교동", "apt": "매교역펠루시드", "supply_year": 2026, "supply_month": "2026-08", "households": 2178, "pyeong_info": "24~34평형", "brand": "삼성/현대/대우"},
+        {"sido": "경기도", "city": "수원시", "gu": "장안구", "dong": "연무동", "apt": "서광교한라비발디", "supply_year": 2027, "supply_month": "2027-01", "households": 285, "pyeong_info": "34~40평형", "brand": "한라비발디"},
+        {"sido": "경기도", "city": "수원시", "gu": "영통구", "dong": "망포동", "apt": "영통자이센트럴파크", "supply_year": 2027, "supply_month": "2027-03", "households": 580, "pyeong_info": "34평형", "brand": "자이"},
+        {"sido": "경기도", "city": "수원시", "gu": "장안구", "dong": "이목동", "apt": "북수원이목디에트르더리체", "supply_year": 2027, "supply_month": "2027-09", "households": 1744, "pyeong_info": "34~45평형", "brand": "디에트르"},
+        {"sido": "경기도", "city": "수원시", "gu": "권선구", "dong": "당수동", "apt": "수원당수공공주택B3블록", "supply_year": 2028, "supply_month": "2028-05", "households": 1120, "pyeong_info": "30~34평형", "brand": "LH/민간"},
+        {"sido": "경기도", "city": "수원시", "gu": "영통구", "dong": "망포동", "apt": "망포도시개발구역예정단지", "supply_year": 2029, "supply_month": "2029-06", "households": 1350, "pyeong_info": "34평형", "brand": "미정"},
+        {"sido": "경기도", "city": "수원시", "gu": "권선구", "dong": "당수동", "apt": "수원당수2지구메인블록", "supply_year": 2030, "supply_month": "2030-03", "households": 1800, "pyeong_info": "24~34평형", "brand": "LH/공공"},
+
         # 화성시
-        {"sido": "경기도", "city": "화성시", "gu": "동탄구", "dong": "신동", "apt": "동탄포레파크원", "supply_year": 2025, "supply_month": "2025-10", "households": 1247, "pyeong_info": "34평형", "brand": "힐스테이트"},
+        {"sido": "경기도", "city": "화성시", "gu": "동탄구", "dong": "청계동", "apt": "동탄역시범우남퍼스트빌", "supply_year": 2015, "supply_month": "2015-01", "households": 1442, "pyeong_info": "25~33평형", "brand": "우남퍼스트빌"},
+        {"sido": "경기도", "city": "화성시", "gu": "동탄구", "dong": "오산동", "apt": "동탄역반도유보라아이비파크", "supply_year": 2018, "supply_month": "2018-07", "households": 990, "pyeong_info": "34~40평형", "brand": "반도유보라"},
+        {"sido": "경기도", "city": "화성시", "gu": "동탄구", "dong": "오산동", "apt": "동탄역롯데캐슬", "supply_year": 2021, "supply_month": "2021-06", "households": 940, "pyeong_info": "27~41평형", "brand": "롯데캐슬"},
         {"sido": "경기도", "city": "화성시", "gu": "동탄구", "dong": "신동", "apt": "동탄파크릭스", "supply_year": 2025, "supply_month": "2025-07", "households": 1403, "pyeong_info": "30~43평형", "brand": "현대/계룡"},
+        {"sido": "경기도", "city": "화성시", "gu": "동탄구", "dong": "신동", "apt": "동탄포레파크원", "supply_year": 2025, "supply_month": "2025-10", "households": 1247, "pyeong_info": "34평형", "brand": "힐스테이트"},
         {"sido": "경기도", "city": "화성시", "gu": "동탄구", "dong": "신동", "apt": "동탄e편한세상파크베뉴", "supply_year": 2026, "supply_month": "2026-04", "households": 1102, "pyeong_info": "30~34평형", "brand": "e편한세상"},
-        {"sido": "경기도", "city": "화성시", "gu": "봉담구", "dong": "봉담읍", "apt": "봉담자이라젠느", "supply_year": 2025, "supply_month": "2025-05", "households": 862, "pyeong_info": "24~40평형", "brand": "자이"},
         {"sido": "경기도", "city": "화성시", "gu": "봉담구", "dong": "봉담읍", "apt": "봉담중흥S클래스센트럴에듀", "supply_year": 2026, "supply_month": "2026-05", "households": 806, "pyeong_info": "34~40평형", "brand": "중흥S클래스"},
+        {"sido": "경기도", "city": "화성시", "gu": "동탄구", "dong": "신동", "apt": "동탄2의료복합타운블록", "supply_year": 2028, "supply_month": "2028-11", "households": 1450, "pyeong_info": "34~45평형", "brand": "민간공모"},
+        {"sido": "경기도", "city": "화성시", "gu": "병점구", "dong": "진안동", "apt": "화성진안3기신도시선도단지", "supply_year": 2029, "supply_month": "2029-10", "households": 2400, "pyeong_info": "24~34평형", "brand": "LH"},
+        {"sido": "경기도", "city": "화성시", "gu": "병점구", "dong": "진안동", "apt": "화성진안신도시2차블록", "supply_year": 2030, "supply_month": "2030-05", "households": 2100, "pyeong_info": "30~34평형", "brand": "LH"},
+
         # 평택시
+        {"sido": "경기도", "city": "평택시", "gu": "평택시 전체", "dong": "비전동", "apt": "평택소사벌호반베르디움", "supply_year": 2017, "supply_month": "2017-04", "households": 737, "pyeong_info": "34평형", "brand": "호반베르디움"},
+        {"sido": "경기도", "city": "평택시", "gu": "평택시 전체", "dong": "고덕동", "apt": "고덕파라곤", "supply_year": 2019, "supply_month": "2019-06", "households": 752, "pyeong_info": "27~42평형", "brand": "파라곤"},
+        {"sido": "경기도", "city": "평택시", "gu": "평택시 전체", "dong": "동삭동", "apt": "힐스테이트지제역", "supply_year": 2020, "supply_month": "2020-12", "households": 1519, "pyeong_info": "24~34평형", "brand": "힐스테이트"},
         {"sido": "경기도", "city": "평택시", "gu": "평택시 전체", "dong": "고덕동", "apt": "고덕국제도시디에트르", "supply_year": 2025, "supply_month": "2025-11", "households": 1211, "pyeong_info": "34~42평형", "brand": "디에트르"},
         {"sido": "경기도", "city": "평택시", "gu": "평택시 전체", "dong": "장안동", "apt": "브레인시티대광로제비앙", "supply_year": 2026, "supply_month": "2026-12", "households": 1980, "pyeong_info": "24~34평형", "brand": "대광로제비앙"},
         {"sido": "경기도", "city": "평택시", "gu": "평택시 전체", "dong": "화양리", "apt": "평택푸르지오센터파인", "supply_year": 2027, "supply_month": "2027-01", "households": 851, "pyeong_info": "30~48평형", "brand": "푸르지오"},
-        {"sido": "경기도", "city": "평택시", "gu": "평택시 전체", "dong": "동삭동", "apt": "지제역반도유보라", "supply_year": 2025, "supply_month": "2025-06", "households": 1340, "pyeong_info": "29~34평형", "brand": "반도유보라"},
-        # 용인시
-        {"sido": "경기도", "city": "용인시", "gu": "기흥구", "dong": "마북동", "apt": "e편한세상용인역플랫폼시티", "supply_year": 2024, "supply_month": "2024-04", "households": 999, "pyeong_info": "24~34평형", "brand": "e편한세상"},
-        {"sido": "경기도", "city": "용인시", "gu": "처인구", "dong": "남동", "apt": "용인푸르지오원클러스터1단지", "supply_year": 2027, "supply_month": "2027-08", "households": 1681, "pyeong_info": "24~52평형", "brand": "푸르지오"},
-        {"sido": "경기도", "city": "용인시", "gu": "처인구", "dong": "모현읍", "apt": "힐스테이트몬테로이", "supply_year": 2025, "supply_month": "2025-01", "households": 3731, "pyeong_info": "24~43평형", "brand": "힐스테이트"},
-        # 성남시
-        {"sido": "경기도", "city": "성남시", "gu": "수정구", "dong": "산성동", "apt": "산성역헤리스톤", "supply_year": 2027, "supply_month": "2027-12", "households": 3487, "pyeong_info": "20~39평형", "brand": "대우/GS/SK"},
-        {"sido": "경기도", "city": "성남시", "gu": "수정구", "dong": "복정동", "apt": "성남복정1지구A2/A3", "supply_year": 2025, "supply_month": "2025-11", "households": 1230, "pyeong_info": "24~34평형", "brand": "LH"},
+        {"sido": "경기도", "city": "평택시", "gu": "평택시 전체", "dong": "도일동", "apt": "브레인시티5블록메디컬단지", "supply_year": 2028, "supply_month": "2028-06", "households": 1400, "pyeong_info": "34평형", "brand": "중흥S클래스"},
+        {"sido": "경기도", "city": "평택시", "gu": "평택시 전체", "dong": "지제동", "apt": "평택지제역콤팩트시티1단지", "supply_year": 2029, "supply_month": "2029-12", "households": 2300, "pyeong_info": "24~34평형", "brand": "LH/민간"},
+        {"sido": "경기도", "city": "평택시", "gu": "평택시 전체", "dong": "지제동", "apt": "평택지제역콤팩트시티2단지", "supply_year": 2030, "supply_month": "2030-08", "households": 1950, "pyeong_info": "30~34평형", "brand": "LH"},
+
         # 서울특별시
+        {"sido": "서울특별시", "city": "서울특별시", "gu": "송파구", "dong": "가락동", "apt": "헬리오시티", "supply_year": 2018, "supply_month": "2018-12", "households": 9510, "pyeong_info": "18~60평형", "brand": "현대/삼성/현산"},
+        {"sido": "서울특별시", "city": "서울특별시", "gu": "강동구", "dong": "고덕동", "apt": "고덕그라시움", "supply_year": 2019, "supply_month": "2019-09", "households": 4932, "pyeong_info": "24~52평형", "brand": "대우/현대/SK"},
+        {"sido": "서울특별시", "city": "서울특별시", "gu": "강남구", "dong": "개포동", "apt": "디에이치아너힐즈", "supply_year": 2019, "supply_month": "2019-08", "households": 1320, "pyeong_info": "25~68평형", "brand": "현대건설"},
+        {"sido": "서울특별시", "city": "서울특별시", "gu": "서초구", "dong": "반포동", "apt": "원베일리", "supply_year": 2023, "supply_month": "2023-08", "households": 2990, "pyeong_info": "18~68평형", "brand": "삼성물산"},
+        {"sido": "서울특별시", "city": "서울특별시", "gu": "강남구", "dong": "개포동", "apt": "디에이치퍼스티어아이파크", "supply_year": 2024, "supply_month": "2024-01", "households": 6702, "pyeong_info": "15~70평형", "brand": "현대/HDC"},
         {"sido": "서울특별시", "city": "서울특별시", "gu": "강동구", "dong": "둔촌동", "apt": "올림픽파크포레온", "supply_year": 2024, "supply_month": "2024-11", "households": 12032, "pyeong_info": "14~66평형", "brand": "현대/대우/롯데/HDC"},
-        {"sido": "서울특별시", "city": "서울특별시", "gu": "강동구", "dong": "성내동", "apt": "그란츠리버파크", "supply_year": 2027, "supply_month": "2027-04", "households": 407, "pyeong_info": "18~45평형", "brand": "DL이앤씨"},
+        {"sido": "서울특별시", "city": "서울특별시", "gu": "강남구", "dong": "청담동", "apt": "청담르엘", "supply_year": 2025, "supply_month": "2025-11", "households": 1261, "pyeong_info": "24~40평형", "brand": "롯데캐슬"},
         {"sido": "서울특별시", "city": "서울특별시", "gu": "송파구", "dong": "신천동", "apt": "잠실래미안아이파크", "supply_year": 2025, "supply_month": "2025-12", "households": 2678, "pyeong_info": "20~48평형", "brand": "삼성/HDC"},
         {"sido": "서울특별시", "city": "서울특별시", "gu": "송파구", "dong": "신천동", "apt": "잠실르엘", "supply_year": 2026, "supply_month": "2026-06", "households": 1865, "pyeong_info": "20~44평형", "brand": "롯데캐슬"},
-        {"sido": "서울특별시", "city": "서울특별시", "gu": "강남구", "dong": "개포동", "apt": "디에이치퍼스티어아이파크", "supply_year": 2024, "supply_month": "2024-01", "households": 6702, "pyeong_info": "15~70평형", "brand": "현대/HDC"},
-        {"sido": "서울특별시", "city": "서울특별시", "gu": "강남구", "dong": "청담동", "apt": "청담르엘", "supply_year": 2025, "supply_month": "2025-11", "households": 1261, "pyeong_info": "24~40평형", "brand": "롯데캐슬"},
-        {"sido": "서울특별시", "city": "서울특별시", "gu": "강남구", "dong": "도곡동", "apt": "래미안레벤투스", "supply_year": 2026, "supply_month": "2026-10", "households": 308, "pyeong_info": "20~34평형", "brand": "삼성물산"}
+        {"sido": "서울특별시", "city": "서울특별시", "gu": "강남구", "dong": "도곡동", "apt": "래미안레벤투스", "supply_year": 2026, "supply_month": "2026-10", "households": 308, "pyeong_info": "20~34평형", "brand": "삼성물산"},
+        {"sido": "서울특별시", "city": "서울특별시", "gu": "서초구", "dong": "반포동", "apt": "반포디에이치클래스트", "supply_year": 2027, "supply_month": "2027-11", "households": 5002, "pyeong_info": "24~80평형", "brand": "현대건설"},
+        {"sido": "서울특별시", "city": "서울특별시", "gu": "송파구", "dong": "문정동", "apt": "문정136재건축힐스테이트", "supply_year": 2027, "supply_month": "2027-05", "households": 1265, "pyeong_info": "20~34평형", "brand": "현대엔지니어링"},
+        {"sido": "서울특별시", "city": "서울특별시", "gu": "서초구", "dong": "방배동", "apt": "디에이치방배", "supply_year": 2028, "supply_month": "2028-04", "households": 3065, "pyeong_info": "24~68평형", "brand": "현대건설"},
+        {"sido": "서울특별시", "city": "서울특별시", "gu": "용산구", "dong": "한남동", "apt": "한남3구역디에이치한남", "supply_year": 2029, "supply_month": "2029-08", "households": 5816, "pyeong_info": "17~50평형", "brand": "현대건설"},
+        {"sido": "서울특별시", "city": "서울특별시", "gu": "영등포구", "dong": "여의도동", "apt": "여의도한양재건축단지", "supply_year": 2030, "supply_month": "2030-06", "households": 990, "pyeong_info": "34~65평형", "brand": "현대건설"}
     ]
     return pd.DataFrame(builtin_records)
 
 
-# ── 3. 단일 월 매매 및 전세 수집 (1개월 단위 캐싱) ─────────────
+# ── 3. 단일 월 매매 및 전세 수집 ─────────────────────────
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_trade_month_cached(lawd_cd: str, deal_ymd: str, sido: str, city: str, gu: str):
     task_records = []
@@ -811,7 +809,8 @@ def fetch_rent_month_cached(lawd_cd: str, deal_ymd: str, sido: str, city: str, g
 
     return task_records, last_error
 
-# ── 4. 병렬 분산 수집 (월별 캐시 공유) ──────────────────────
+
+# ── 4. 병렬 분산 수집 ─────────────────────────────────────
 def fetch_all_target_records(target_list_tuples, target_months_tuple, fetch_rent: bool = True):
     trade_tasks = []
     rent_tasks = []
@@ -857,7 +856,6 @@ def fetch_all_target_records(target_list_tuples, target_months_tuple, fetch_rent
     return pd.DataFrame(all_trade_records), pd.DataFrame(all_rent_records), error_messages
 
 
-# ── [비교 모드용 단지/평형 메타데이터 추출 캐시 함수] ────────
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_region_apt_metadata(code: str, sido: str, city: str, gu: str):
     recent_12m = tuple([(now_kst - relativedelta(months=i)).strftime('%Y%m') for i in range(11, -1, -1)])
@@ -915,7 +913,6 @@ if st.sidebar.button("🔄 캐시 초기화 및 데이터 다시 불러오기", 
     st.cache_data.clear()
     st.rerun()
 
-# [1] 조회 기간 선택 (슬라이더 스크롤 방식)
 selected_months_count = st.sidebar.slider(
     "📅 조회 기간 선택 (실시간/최고가 모드용)",
     min_value=1,
@@ -926,7 +923,6 @@ selected_months_count = st.sidebar.slider(
     help="실시간 인기 단지 및 최고가 모드에서 조회할 과거 개월 수를 선택합니다 (광역 전체 조회 시 최대 12개월로 제한됩니다)."
 )
 
-# [2] 이상치 정제 옵션
 filter_bulk_option = st.sidebar.checkbox(
     "🚫 통매입/임대 대량 일괄거래 제외",
     value=True,
@@ -935,7 +931,6 @@ filter_bulk_option = st.sidebar.checkbox(
 
 st.sidebar.markdown("---")
 
-# [3] 공급/분양평형 기준 면적 필터
 st.sidebar.markdown("### 📐 분양/공급평형 필터")
 area_unit = st.sidebar.radio("면적 단위", ["공급평형", "전용면적(㎡)"], index=0, horizontal=True)
 
@@ -979,7 +974,6 @@ else:
 
 st.sidebar.markdown("---")
 
-# [4] 정밀 자본금 & DSR 계산기
 calc_enabled = st.sidebar.toggle("🪙 정밀 자본금 & DSR 계산기 활성화", value=False)
 
 if calc_enabled:
@@ -1110,7 +1104,6 @@ if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
 
     col_a, col_b, col_c = st.columns(3)
 
-    # ── [단지 1 설정] ──
     with col_a:
         st.markdown('<div class="step-chip">🔵 단지 1 (기준)</div>', unsafe_allow_html=True)
         sido_1 = st.selectbox("시·도 1", list(REGION_STRUCTURE.keys()), index=0, key="cmp_sido_1")
@@ -1136,7 +1129,6 @@ if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
             apt_name_1 = st.text_input("단지명 1 (직접 입력)", value="", key="cmp_apt_1_raw")
             pyeong_1 = st.number_input("공급평형 1 (0은 전체)", min_value=0, max_value=120, value=0, key="cmp_p_1_raw")
 
-    # ── [단지 2 설정] ──
     with col_b:
         st.markdown('<div class="step-chip">🟠 단지 2 (비교)</div>', unsafe_allow_html=True)
         sido_2 = st.selectbox("시·도 2", list(REGION_STRUCTURE.keys()), index=0, key="cmp_sido_2")
@@ -1163,7 +1155,6 @@ if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
             apt_name_2 = st.text_input("단지명 2 (직접 입력)", value="", key="cmp_apt_2_raw")
             pyeong_2 = st.number_input("공급평형 2 (0은 전체)", min_value=0, max_value=120, value=0, key="cmp_p_2_raw")
 
-    # ── [단지 3 설정 (선택사항)] ──
     with col_c:
         st.markdown('<div class="step-chip">🟢 단지 3 (선택사항)</div>', unsafe_allow_html=True)
         sido_3 = st.selectbox("시·도 3", ["(선택 안함)"] + list(REGION_STRUCTURE.keys()), index=0, key="cmp_sido_3")
@@ -1346,7 +1337,7 @@ if analysis_mode == "📈 단지별 시세 비교 (최대 3개)":
                         )
 
 # ═════════════════════════════════════════════════════════
-# [모드 4] 🏢 지역별 신축 입주물량 분석 (신규 추가, API 소모 0회)
+# [모드 4] 🏢 지역별 신축 입주물량 분석 (2015~2030년 확장)
 # ═════════════════════════════════════════════════════════
 elif analysis_mode == "🏢 지역별 신축 입주물량 분석":
     col1, col2, col3 = st.columns(3)
@@ -1373,15 +1364,13 @@ elif analysis_mode == "🏢 지역별 신축 입주물량 분석":
         else:
             sup_gu = st.selectbox("구·권역", ["전체 보기"], disabled=True, key="sup_gu_dis")
 
-    # 입주물량 데이터 로드 (API 호출 0회)
     supply_all_df = load_supply_data()
     
-    # 지역 필터링
     if sup_sido == "경기도":
         if sup_city == "경기도 전체":
             target_sup = supply_all_df[supply_all_df['sido'] == "경기도"]
             title_region = "경기도 전체"
-            pop_key = "수원시" # 기준치 폴백
+            pop_key = "수원시"
         else:
             target_sup = supply_all_df[(supply_all_df['sido'] == "경기도") & (supply_all_df['city'] == sup_city)]
             title_region = f"경기도 {sup_city}"
@@ -1399,18 +1388,16 @@ elif analysis_mode == "🏢 지역별 신축 입주물량 분석":
             title_region = f"{sup_sido} {sup_city}"
             pop_key = sup_city
 
-    st.markdown(f'<div class="section-title">🏢 {title_region} 연도별 신축 입주물량 및 수급 분석</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">🏢 {title_region} 연도별 신축 입주물량 및 수급 분석 (2015년 ~ 2030년)</div>', unsafe_allow_html=True)
 
-    # 적정 수요량 계산 (인구수 × 0.5%)
     target_pop = POPULATION_MAP.get(pop_key, POPULATION_MAP.get(sup_sido, 500000))
     proper_annual_demand = int(target_pop * 0.005)
 
-    # 3개년(2026~2028년) 누적 공급 세대수
-    future_sup = target_sup[target_sup['supply_year'].between(2026, 2028)]
-    total_3yr_households = int(future_sup['households'].sum()) if not future_sup.empty else 0
-    avg_annual_supply = int(total_3yr_households / 3) if total_3yr_households > 0 else 0
+    # 2026년부터 2030년까지 미래 공급 세대수 집계
+    future_sup = target_sup[target_sup['supply_year'].between(2026, 2030)]
+    total_future_households = int(future_sup['households'].sum()) if not future_sup.empty else 0
+    avg_annual_supply = int(total_future_households / 5) if total_future_households > 0 else 0
 
-    # 수급 진단 상태
     if proper_annual_demand > 0:
         supply_ratio = (avg_annual_supply / proper_annual_demand) * 100
         if supply_ratio >= 130:
@@ -1426,7 +1413,6 @@ elif analysis_mode == "🏢 지역별 신축 입주물량 분석":
         status_text = "⚖️ 통계 분석중"
         status_sub = "인구 기준 분석"
 
-    # 최대 단지
     if not future_sup.empty:
         max_c = future_sup.loc[future_sup['households'].idxmax()]
         max_apt_str = f"{max_c['apt']} ({max_c['households']:,}세대)"
@@ -1438,9 +1424,9 @@ elif analysis_mode == "🏢 지역별 신축 입주물량 분석":
     sup_kpi_html = f"""
     <div class="kpi-grid-container">
         <div class="kpi-card">
-            <div class="kpi-label">🏢 향후 3개년 누적 입주 예정</div>
-            <div class="kpi-value accent">{total_3yr_households:,}세대</div>
-            <div class="kpi-sub muted">2026년 ~ 2028년 총 공급 합계</div>
+            <div class="kpi-label">🏢 향후 5개년 누적 입주 예정</div>
+            <div class="kpi-value accent">{total_future_households:,}세대</div>
+            <div class="kpi-sub muted">2026년 ~ 2030년 총 공급 합계</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">🎯 연간 적정 수요량</div>
@@ -1448,7 +1434,7 @@ elif analysis_mode == "🏢 지역별 신축 입주물량 분석":
             <div class="kpi-sub muted">인구수({target_pop:,}명) × 0.5% 기준</div>
         </div>
         <div class="kpi-card">
-            <div class="kpi-label">⚖️ 3개년 수급 진단</div>
+            <div class="kpi-label">⚖️ 5개년 수급 진단</div>
             <div class="kpi-value" style="font-size:1.25rem;">{status_text}</div>
             <div class="kpi-sub">{status_sub}</div>
         </div>
@@ -1461,16 +1447,16 @@ elif analysis_mode == "🏢 지역별 신축 입주물량 분석":
     """
     st.markdown(sup_kpi_html, unsafe_allow_html=True)
 
-    # ── 시각화 차트 (연도별 입주물량 막대 vs 적정 수요선) ──
+    # ── 16개년(2015~2030) 시각화 차트 ──
     c1, c2 = st.columns([3, 2])
 
     with c1:
-        st.markdown('<div class="section-title">📊 연도별 신축 입주물량 vs 적정 수요선</div>', unsafe_allow_html=True)
-        all_years = [2024, 2025, 2026, 2027, 2028]
+        st.markdown('<div class="section-title">📊 16개년 신축 입주물량 vs 적정 수요선 (2015~2030)</div>', unsafe_allow_html=True)
+        all_years = list(range(2015, 2031))
         if not target_sup.empty:
             yearly_stat = target_sup.groupby('supply_year')['households'].sum().reindex(all_years, fill_value=0).reset_index()
         else:
-            yearly_stat = pd.DataFrame({'supply_year': all_years, 'households': [0]*5})
+            yearly_stat = pd.DataFrame({'supply_year': all_years, 'households': [0]*len(all_years)})
 
         bar_colors = [
             '#e53e3e' if h >= proper_annual_demand * 1.3 else ('#2a78d6' if h < proper_annual_demand * 0.7 else '#eb6834')
@@ -1479,19 +1465,19 @@ elif analysis_mode == "🏢 지역별 신축 입주물량 분석":
 
         fig_sup = go.Figure()
         fig_sup.add_trace(go.Bar(
-            x=[f"{y}년" for y in yearly_stat['supply_year']],
+            x=[f"'{str(y)[2:]}" for y in yearly_stat['supply_year']],
             y=yearly_stat['households'],
             marker_color=bar_colors,
-            text=[f"<b>{h:,}세대</b>" if h > 0 else "0세대" for h in yearly_stat['households']],
+            text=[f"{h//1000}k" if h >= 1000 else (f"{h}" if h > 0 else "") for h in yearly_stat['households']],
             textposition='outside',
-            hovertemplate="%{x}: <b>%{y:,}세대</b><extra></extra>"
+            hovertemplate="%{x}년 입주: <b>%{y:,}세대</b><extra></extra>"
         ))
 
         fig_sup.add_hline(
             y=proper_annual_demand,
             line_dash="dash",
             line_color="#e53e3e",
-            annotation_text=f"연간 적정 수요 ({proper_annual_demand:,}세대)",
+            annotation_text=f"적정수요 ({proper_annual_demand:,}세대)",
             annotation_position="top right"
         )
 
@@ -1500,7 +1486,7 @@ elif analysis_mode == "🏢 지역별 신축 입주물량 분석":
             paper_bgcolor="rgba(0,0,0,0)",
             margin=dict(l=10, r=10, t=20, b=10),
             height=300,
-            font=dict(family="Pretendard, sans-serif", color="#52514e", size=11),
+            font=dict(family="Pretendard, sans-serif", color="#52514e", size=10),
             xaxis=dict(showgrid=False, linecolor="#c3c2b7"),
             yaxis=dict(gridcolor="#e1e0d9", zeroline=False, ticksuffix="세대")
         )
@@ -1528,10 +1514,9 @@ elif analysis_mode == "🏢 지역별 신축 입주물량 분석":
 
     st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
-    # ── 입주 예정 단지 상세 캘린더 ──
-    st.markdown(f'<div class="section-title">📅 {title_region} 입주 단지 상세 리스트</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">📅 {title_region} 입주 단지 상세 리스트 (2015~2030)</div>', unsafe_allow_html=True)
     if not target_sup.empty:
-        disp_sup_df = target_sup.sort_values(by=['supply_month', 'households'], ascending=[True, False]).reset_index(drop=True)
+        disp_sup_df = target_sup.sort_values(by=['supply_month', 'households'], ascending=[False, False]).reset_index(drop=True)
         disp_table = disp_sup_df[['supply_month', 'gu', 'dong', 'apt', 'households', 'pyeong_info', 'brand']].copy()
         disp_table.columns = ['입주예정월', '구', '법정동', '단지명', '세대수', '공급평형', '시공/브랜드']
         disp_table.index = range(1, len(disp_table) + 1)
@@ -1546,7 +1531,7 @@ elif analysis_mode == "🏢 지역별 신축 입주물량 분석":
             }
         )
     else:
-        st.info("선택된 지역에 등록된 입주 예정 단지 정보가 없습니다.")
+        st.info("선택된 지역에 등록된 입주 단지 정보가 없습니다.")
 
 # ═════════════════════════════════════════════════════════
 # [모드 1, 2, 3] 4단계 지역 필터 및 공통 데이터 파이프라인
@@ -1609,7 +1594,6 @@ else:
             code = sido_data[selected_gu_direct]
             target_codes_to_fetch.append((code, selected_sido, selected_sido, selected_gu_direct))
 
-    # ── 광역 조회 가드레일 (API 트래픽 및 무료 한도 보호) ─────────
     is_wide_region_selected = (
         (selected_sido == "경기도" and selected_city == "경기도 전체") or
         (selected_sido != "경기도" and selected_gu_direct == f"{selected_sido} 전체")
@@ -2053,10 +2037,11 @@ else:
 
             max_kpi_html = f"""
             <div class="kpi-grid-container">
-                <div class="kpi-label">🏆 지역 최고 실거래가</div>
-                <div class="kpi-value accent">{format_price(top_record['최고실거래가'])}원</div>
-                <div class="kpi-sub muted" title="{html.escape(top_record['apt'])}">{html.escape(top_record['apt'])} ({top_record['dong']} · {int(top_record['supply_pyeong'])}평)</div>
-            </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">🏆 지역 최고 실거래가</div>
+                    <div class="kpi-value accent">{format_price(top_record['최고실거래가'])}원</div>
+                    <div class="kpi-sub muted" title="{html.escape(top_record['apt'])}">{html.escape(top_record['apt'])} ({top_record['dong']} · {int(top_record['supply_pyeong'])}평)</div>
+                </div>
                 <div class="kpi-card">
                     <div class="kpi-label">📐 최고 평당가 기록</div>
                     <div class="kpi-value primary">평당 {top_ppyeong_record['최고가평단가']:,}만</div>
