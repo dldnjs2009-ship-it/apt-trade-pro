@@ -23,7 +23,7 @@ jobs:
 
       - name: 필수 라이브러리 설치
         run: |
-          pip install pandas requests
+          pip install pandas requests openpyxl
 
       - name: 입주물량 수집 스크립트 실행
         env:
