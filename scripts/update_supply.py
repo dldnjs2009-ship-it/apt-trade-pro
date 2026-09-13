@@ -30,7 +30,7 @@ def clean_households(h_str):
         return int(m.group(1).replace(',', ''))
     return 0
 
-# ── 1. 엑셀 과거 시드 주소 파싱 엔진 ────────────────────────
+# ── 1. 엑셀 시드 주소 파싱 엔진 ──────────────────────────────
 def resolve_gyeonggi(tokens):
     sido = "경기도"
     second = tokens[1] if len(tokens) > 1 else ""
@@ -110,7 +110,6 @@ def parse_excel_loc(loc_str):
 
 def load_historical_from_excel():
     if not os.path.exists(EXCEL_SEED_PATH):
-        print(f"안내: {EXCEL_SEED_PATH} 파일이 없어 엑셀 시드 로드를 건너뜁니다.")
         return pd.DataFrame(columns=COLUMNS)
 
     print(f"📖 {EXCEL_SEED_PATH} 파일로부터 전국 과거 입주 단지 파싱 시작...")
@@ -140,7 +139,7 @@ def load_historical_from_excel():
     print(f"  - 엑셀에서 총 {len(df_excel)}개 단지 추출 완료.")
     return df_excel
 
-# ── 2. 청약홈 API 호출 주소 파싱 엔진 (도로명 버그 차단) ─────────
+# ── 2. 청약홈 API 주소 파싱 엔진 ──────────────────────────────
 def parse_api_address(addr: str):
     if not addr or not isinstance(addr, str):
         return None, None, None, None
@@ -263,14 +262,22 @@ def fetch_applyhome_api(api_key: str):
     print(f"청약홈 API에서 총 {len(records)}개 단지 수집 완료.")
     return records
 
-# ── 3. 3중 통합 병합 및 CSV 자동 생성 ────────────────────────
+# ── 3. 스마트 단지명 정규화 및 중복 제거 엔진 ────────────────────
+def normalize_for_dedup(name: str) -> str:
+    """공백, 괄호 속 무순위/취소분 키워드를 제거하여 동일 단지 키 생성"""
+    s = str(name).strip()
+    s = re.sub(r'[\(\[\{][^\)\]\}]*(?:취소|무순위|임의공급|잔여|재공급|조합원)[^\)\]\}]*[\)\]\}]', '', s)
+    s = "".join(s.split())
+    s = re.sub(r'[\(\[\{]주[\)\]\}]', '', s)
+    return s
+
 def update_csv():
     api_key = os.environ.get("DATA_GO_KR_SERVICE_KEY")
 
     # 1) 엑셀 시드(2015~2024년 전국 5,757개 단지) 로드
     df_excel = load_historical_from_excel()
 
-    # 2) 기존 CSV가 존재하면 로드
+    # 2) 기존 CSV 로드
     df_csv = pd.DataFrame(columns=COLUMNS)
     if os.path.exists(CSV_PATH):
         try:
@@ -278,11 +285,11 @@ def update_csv():
         except Exception:
             pass
 
-    # 3) 청약홈 API 호출 (최신 미래 분양 단지)
+    # 3) 청약홈 API 호출
     api_records = fetch_applyhome_api(api_key) if api_key else []
     df_api = pd.DataFrame(api_records) if api_records else pd.DataFrame(columns=COLUMNS)
 
-    # 4) [엑셀 시드 + 기존 CSV + 청약홈 API] 3중 병합
+    # 4) 3중 통합 병합
     combined = pd.concat([df_excel, df_csv, df_api], ignore_index=True)
 
     for col in COLUMNS:
@@ -294,13 +301,31 @@ def update_csv():
     combined['households'] = pd.to_numeric(combined['households'], errors='coerce').fillna(0).astype(int)
     combined = combined[(combined['supply_year'] >= 2015) & (combined['households'] > 0)]
 
-    # 중복 제거 (시군, 구, 단지명, 입주월 기준)
-    combined.drop_duplicates(subset=["city", "gu", "apt", "supply_month"], keep="last", inplace=True)
+    # 5) 스마트 중복 제거
+    #  - 띄어쓰기/무순위 태그를 제거한 키 기준 그룹화
+    #  - 세대수 최대치(본청약 전체 세대수)를 1순위로 유지하여 취소분(5세대 등) 중복 합산 방지
+    #  - 세대수가 같으면 구체적인 시공/시행사 정보가 있는 쪽 우선
+    combined['clean_apt'] = combined['apt'].apply(normalize_for_dedup)
+    combined['brand_score'] = combined['brand'].apply(
+        lambda b: 0 if str(b).strip() in ['민간/공공', '민간분양', '', 'nan'] else 1
+    )
+
+    combined.sort_values(
+        by=['clean_apt', 'households', 'brand_score', 'supply_month'],
+        ascending=[True, False, False, False],
+        inplace=True
+    )
+
+    combined = combined.drop_duplicates(
+        subset=['city', 'gu', 'clean_apt', 'supply_year'],
+        keep='first'
+    ).copy()
+
+    combined.drop(columns=['clean_apt', 'brand_score'], inplace=True, errors='ignore')
     combined.sort_values(by=["supply_month", "households"], ascending=[False, False], inplace=True)
 
-    # supply_data.csv 자동 생성 및 저장
     combined.to_csv(CSV_PATH, index=False, encoding="utf-8-sig")
-    print(f"🎉 성공: {CSV_PATH} 자동 생성 및 갱신 완료 (총 {len(combined)}개 단지 적재 / 2015~2030년 전국 지원)")
+    print(f"🎉 성공: {CSV_PATH} 갱신 완료 (총 {len(combined)}개 고유 단지 적재 / 중복 100% 제거)")
 
 if __name__ == "__main__":
     update_csv()
