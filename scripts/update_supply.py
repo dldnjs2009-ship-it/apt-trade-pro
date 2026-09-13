@@ -1,8 +1,10 @@
 import os
+import glob
 import re
 import requests
 import pandas as pd
 
+# 파일 경로 (기본 파일명이거나 저장소 내 첫 번째 xlsx 자동 탐색)
 EXCEL_SEED_PATH = "전국과거분양자료.xlsx"
 CSV_PATH = "supply_data.csv"
 API_URL = "https://api.odcloud.kr/api/ApplyhomeInfoDetailSvc/v1/getAPTLttotPblancDetail"
@@ -108,17 +110,24 @@ def parse_excel_loc(loc_str):
 
     return sido, city, gu, dong
 
-# ── 핵심: 엑셀에서는 2015~2019년 (2020년 미만) 데이터만 로드 ──
-def load_historical_from_excel_under_2020():
-    if not os.path.exists(EXCEL_SEED_PATH):
-        print(f"안내: {EXCEL_SEED_PATH} 파일이 없습니다.")
-        return pd.DataFrame(columns=COLUMNS)
+# ── 엑셀 원본 로드 (2015~2030년 전체 입주 데이터 전수 로드) ──
+def load_all_from_excel():
+    target_excel = EXCEL_SEED_PATH
+    if not os.path.exists(target_excel):
+        xlsx_files = [f for f in glob.glob("*.xlsx") if not f.startswith("~$")]
+        if xlsx_files:
+            target_excel = xlsx_files[0]
+        else:
+            print("안내: 저장소에 .xlsx 파일이 없어 엑셀 로드를 건너뜁니다.")
+            return pd.DataFrame(columns=COLUMNS)
 
-    print(f"📖 {EXCEL_SEED_PATH} 파일로부터 2015~2019년 순수 과거 데이터만 파싱 시작...")
-    df_full = pd.read_excel(EXCEL_SEED_PATH, sheet_name=0, header=None)
+    print(f"📖 [{target_excel}] 파일로부터 전국 2015~2030년 입주 실적(아실 데이터) 전수 로드 시작...")
+    df_full = pd.read_excel(target_excel, sheet_name=0, header=None)
     records = []
 
-    for start_col in range(3, 67, 4):
+    for start_col in range(3, df_full.shape[1], 4):
+        if start_col + 3 >= df_full.shape[1]:
+            break
         sub = df_full.iloc[7:, start_col:start_col+4].dropna(how='all')
         for idx, row in sub.iterrows():
             loc = row.iloc[0]
@@ -130,8 +139,8 @@ def load_historical_from_excel_under_2020():
             y, m_str = clean_date(str(date_str).strip())
             h = clean_households(str(h_str).strip())
             
-            # 2020년 미만(2015~2019년) 과거 데이터만 수용 (2020년 이후는 청약홈 API 전담)
-            if y and 2015 <= y < 2020 and h > 0:
+            # 2015년 ~ 2032년 사이의 모든 입주 예정/완료 데이터를 전수 수용
+            if y and 2015 <= y <= 2032 and h > 0:
                 sido, city, gu, dong = parse_excel_loc(str(loc).strip())
                 records.append({
                     "sido": sido, "city": city, "gu": gu, "dong": dong,
@@ -140,7 +149,7 @@ def load_historical_from_excel_under_2020():
                 })
 
     df_excel = pd.DataFrame(records)
-    print(f"  - 엑셀에서 2015~2019년 과거 확정 데이터 총 {len(df_excel)}개 단지 추출 완료.")
+    print(f"  - 엑셀에서 총 {len(df_excel)}개 단지 로드 완료.")
     return df_excel
 
 # ── 2. 청약홈 API 주소 파싱 엔진 ──────────────────────────────
@@ -201,13 +210,13 @@ def parse_api_address(addr: str):
 
     return sido, city, gu, dong
 
-# ── 청약홈 API 수집 (2020~2030년 / 사전청약 및 무순위 재분양 공고 제외) ──
+# ── 청약홈 API 수집 (2026년 이후 신규 미래 분양 보완) ─────────
 def fetch_applyhome_api(api_key: str):
     records = []
     page = 1
     per_page = 100
 
-    print("📡 한국부동산원 청약홈 API로부터 2020~2030년 분양 단지 수집 시작...")
+    print("📡 한국부동산원 청약홈 API로부터 신규 미래 분양 단지 수집 시작...")
     while True:
         params = {"page": page, "perPage": per_page, "serviceKey": api_key}
         try:
@@ -237,11 +246,9 @@ def fetch_applyhome_api(api_key: str):
             tot_hshld = item.get("TOT_SUPLY_HSHLDCO", 0)
             brand = str(item.get("BSNS_MBY_NM", "")).strip() or "민간분양"
 
-            # 사전청약 제외 (본청약이 따로 존재하여 세대수 이중 집계 방지)
+            # 사전청약 및 무순위 재분양 공고 제외 (중복 뻥튀기 방지)
             if "사전청약" in house_nm:
                 continue
-
-            # 잔여세대/취소분/무순위/추가모집 제외 (본청약 세대수 내 미계약분이므로 신규 공급 아님)
             if re.search(r'(?:무순위|취소후재공급|조합원\s*취소|임의공급|추가입주자|추가모집|잔여세대)', house_nm):
                 continue
 
@@ -252,7 +259,7 @@ def fetch_applyhome_api(api_key: str):
                 except ValueError:
                     continue
 
-                if 2020 <= s_year <= 2032:
+                if 2026 <= s_year <= 2032:
                     sido, city, gu, dong = parse_api_address(addr)
                     if sido and city:
                         try:
@@ -272,13 +279,12 @@ def fetch_applyhome_api(api_key: str):
             break
         page += 1
 
-    print(f"청약홈 API에서 총 {len(records)}개 유효 단지 수집 완료.")
+    print(f"청약홈 API에서 총 {len(records)}개 단지 수집 완료.")
     return records
 
-# ── 3. 단지명 정규화 및 최종 병합 ────────────────────────────
+# ── 3. 단지명 정규화 및 병합 (아실 총 세대수 1순위 보존) ───────────
 def clean_for_dedup(name: str) -> str:
     s = str(name).strip()
-    # 괄호 수식어 및 로마자 정규화
     s = re.sub(r'[\(\[\{][^\)\]\}]*(?:본청약|사전청약|추가|취소|무순위|임의공급|잔여|재공급|조합원|주상복합|도시형)[^\)\]\}]*[\)\]\}]', '', s)
     s = s.replace('Ⅰ', 'I').replace('Ⅱ', 'II').replace('Ⅲ', 'III')
     s = re.sub(r'[\(\[\{][주유][\)\]\}]', '', s)
@@ -287,25 +293,23 @@ def clean_for_dedup(name: str) -> str:
 def update_csv():
     api_key = os.environ.get("DATA_GO_KR_SERVICE_KEY")
 
-    # 1) 엑셀 시드: 2015~2019년 (2020년 미만) 과거 확정 데이터만 로드 (3,164개 단지)
-    df_excel = load_historical_from_excel_under_2020()
+    # 1) 엑셀 원본 로드 (2015~2030년 아실 전수 데이터)
+    df_excel = load_all_from_excel()
 
-    # 2) 청약홈 API: 2020년 이후 실시간 최신 데이터 로드
+    # 2) 청약홈 API 로드 (2026년 이후 신규 추가분)
     api_records = fetch_applyhome_api(api_key) if api_key else []
     df_api = pd.DataFrame(api_records) if api_records else pd.DataFrame(columns=COLUMNS)
 
-    # 3) 기존 CSV 백업 처리: 2020년 이후 데이터 중 유효한 것만 보존
-    df_csv_2020 = pd.DataFrame(columns=COLUMNS)
+    # 3) 기존 CSV가 있으면 로드
+    df_csv = pd.DataFrame(columns=COLUMNS)
     if os.path.exists(CSV_PATH):
         try:
-            df_old = pd.read_csv(CSV_PATH)
-            # 기존 CSV에서 2020년 이후 데이터만 추출하고, 엑셀에서 넘어왔던 임시(민간/공공) 데이터는 제거
-            df_csv_2020 = df_old[(df_old['supply_year'] >= 2020) & (df_old['brand'] != '민간/공공')].copy()
+            df_csv = pd.read_csv(CSV_PATH)
         except Exception:
             pass
 
-    # 4) 2015~2019(엑셀) + 2020~(API 및 정제된 기존데이터) 병합
-    combined = pd.concat([df_excel, df_csv_2020, df_api], ignore_index=True)
+    # 4) 병합: 엑셀 데이터 + 기존 CSV + API 최신 데이터
+    combined = pd.concat([df_excel, df_csv, df_api], ignore_index=True)
 
     for col in COLUMNS:
         if col not in combined.columns:
@@ -316,13 +320,12 @@ def update_csv():
     combined['households'] = pd.to_numeric(combined['households'], errors='coerce').fillna(0).astype(int)
     combined = combined[(combined['supply_year'] >= 2015) & (combined['households'] > 0)]
 
-    # 5) 최종 중복 제거 (정규화 키 기준)
+    # 5) 중복 제거: 동일 단지 중 '총 세대수가 가장 큰 레코드(엑셀 원본 전체 세대수)' 우선 유지
     combined['clean_apt'] = combined['apt'].apply(clean_for_dedup)
     combined['brand_score'] = combined['brand'].apply(
         lambda b: 0 if str(b).strip() in ['민간/공공', '민간분양', '', 'nan'] else 1
     )
 
-    # 세대수 큰 공고 우선, 브랜드명 상세한 공고 우선
     combined.sort_values(
         by=['clean_apt', 'households', 'brand_score', 'supply_month'],
         ascending=[True, False, False, False],
@@ -338,7 +341,7 @@ def update_csv():
     combined.sort_values(by=["supply_month", "households"], ascending=[False, False], inplace=True)
 
     combined.to_csv(CSV_PATH, index=False, encoding="utf-8-sig")
-    print(f"🎉 성공: {CSV_PATH} 갱신 완료 (총 {len(combined)}개 고유 단지 적재 / 중복 100% 제거)")
+    print(f"🎉 성공: {CSV_PATH} 갱신 완료 (총 {len(combined)}개 고유 단지 적재 / 2015~2030년 전수 반영)")
 
 if __name__ == "__main__":
     update_csv()
